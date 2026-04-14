@@ -1,13 +1,14 @@
 """
 Script auxiliar para el login de PedidosYa.
-1. Abre el browser y espera el login manual
-2. Extrae el token + device token
-3. Calcula los totales de órdenes por grupo
-4. Obtiene reclamos (ListOrders + GetOrderDetails) desde el mismo browser
-5. Imprime JSON en stdout:
+1. Intenta login automático con email/password en /login
+2. Si se requiere 2FA, imprime {"status": "2fa_required"} y espera flag manual
+3. Extrae el token + device token
+4. Calcula los totales de órdenes por grupo
+5. Obtiene reclamos (ListOrders + GetOrderDetails) desde el mismo browser
+6. Imprime JSON en stdout:
    {"token": "...", "totales": {...}, "device_token": "...", "reclamos_data": [...]}
 
-Uso: python peya_login_helper.py <flag_file> <state_file> <desde> <hasta> [vendor_codes_json]
+Uso: python peya_login_helper.py <flag_file> <state_file> <desde> <hasta> [vendor_codes_json] [email] [password]
 """
 import asyncio, sys, json
 from pathlib import Path
@@ -17,6 +18,8 @@ STATE_FILE   = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(".peya_browser_s
 DESDE        = sys.argv[3] if len(sys.argv) > 3 else None
 HASTA        = sys.argv[4] if len(sys.argv) > 4 else None
 GRUPOS_CODES = json.loads(sys.argv[5]) if len(sys.argv) > 5 else {}
+PEYA_EMAIL   = sys.argv[6] if len(sys.argv) > 6 else ""
+PEYA_PASSWORD= sys.argv[7] if len(sys.argv) > 7 else ""
 
 PERF_URL = "https://vos-api.us.prd.portal.restaurant/v1/vendors/reports/performance"
 GQL_URL  = "https://vagw-api.us.prd.portal.restaurant/query"
@@ -100,6 +103,27 @@ async def _gql(page, body_dict: dict, auth: dict | None = None) -> dict:
         return {"status": 0, "error": str(e), "data": {}}
 
 
+TOKEN_JS = """
+    (() => {
+        try {
+            const root = localStorage.getItem('persist:root');
+            if (!root) return null;
+            const auth = JSON.parse(JSON.parse(root).authentication);
+            return auth.accessToken || null;
+        } catch(e) { return null; }
+    })()
+"""
+
+
+async def _wait_for_token(page, timeout_ms=30_000) -> bool:
+    """Espera hasta timeout_ms ms a que aparezca el token en localStorage. Devuelve True si lo encuentra."""
+    try:
+        await page.wait_for_function(TOKEN_JS, timeout=timeout_ms)
+        return True
+    except Exception:
+        return False
+
+
 async def main():
     from playwright.async_api import async_playwright
     FLAG.unlink(missing_ok=True)
@@ -115,14 +139,52 @@ async def main():
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
 
         page = await context.new_page()
-        await page.goto("https://portal-app.pedidosya.com/phone-login",
+        await page.goto("https://portal-app.pedidosya.com/login",
                         wait_until="networkidle")
 
-        # Esperar flag file (el usuario completa el login)
-        while not FLAG.exists():
-            await asyncio.sleep(0.5)
-        FLAG.unlink(missing_ok=True)
-        await asyncio.sleep(2)
+        # ── Intento de login automático con credenciales ──────────────────────
+        login_automatico = False
+        if PEYA_EMAIL and PEYA_PASSWORD:
+            try:
+                # Esperar el campo de email (la página /login usa inputs estándar)
+                EMAIL_SELECTORS = [
+                    'input[type="email"]',
+                    'input[name="email"]',
+                    'input[name="username"]',
+                ]
+                email_sel = None
+                for sel in EMAIL_SELECTORS:
+                    try:
+                        await page.wait_for_selector(sel, timeout=5_000)
+                        email_sel = sel
+                        break
+                    except Exception:
+                        continue
+
+                if not email_sel:
+                    raise RuntimeError("No se encontró el campo de email en el formulario")
+
+                # Completar email y password
+                await page.fill(email_sel, PEYA_EMAIL)
+                await page.fill('input[type="password"]', PEYA_PASSWORD)
+
+                # Enviar formulario
+                submit = page.locator('button[type="submit"]').first
+                await submit.click()
+
+                # Esperar hasta 30s a que aparezca el token (login exitoso)
+                login_automatico = await _wait_for_token(page, timeout_ms=30_000)
+
+            except Exception:
+                login_automatico = False
+
+        # ── Si no hay token, asumir 2FA u otro desafío manual ────────────────
+        if not login_automatico:
+            print('{"status": "2fa_required"}', flush=True)
+            while not FLAG.exists():
+                await asyncio.sleep(0.5)
+            FLAG.unlink(missing_ok=True)
+            await asyncio.sleep(2)
 
         # ── Extraer token + device token ──────────────────────────────────────
         token_data = await page.evaluate("""

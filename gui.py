@@ -1013,6 +1013,9 @@ class ResenaApp(tk.Tk):
         self.rappi_email    = tk.StringVar()
         self.rappi_password = tk.StringVar()
         self.recordar_pass  = tk.BooleanVar(value=False)
+        self.peya_email     = tk.StringVar()
+        self.peya_password  = tk.StringVar()
+        self.recordar_peya  = tk.BooleanVar(value=False)
         self.fecha_desde    = tk.StringVar()
         self.fecha_hasta    = tk.StringVar()
         self.ml_resenas     = tk.StringVar()
@@ -1020,6 +1023,7 @@ class ResenaApp(tk.Tk):
         self.output_dir     = tk.StringVar(value="./informes")
         self.running        = False
         self._proc          = None
+        self._peya_proc     = None
 
         self._cargar_config()
         if not self.fecha_desde.get():
@@ -1039,6 +1043,10 @@ class ResenaApp(tk.Tk):
                 if cfg.get("recordar_pass") and cfg.get("rappi_password"):
                     self.rappi_password.set(cfg["rappi_password"])
                     self.recordar_pass.set(True)
+                self.peya_email.set(cfg.get("peya_email", ""))
+                if cfg.get("recordar_peya") and cfg.get("peya_password"):
+                    self.peya_password.set(cfg["peya_password"])
+                    self.recordar_peya.set(True)
                 self.output_dir.set(cfg.get("output_dir", "./informes"))
                 self.fecha_desde.set(cfg.get("fecha_desde", ""))
                 self.fecha_hasta.set(cfg.get("fecha_hasta", ""))
@@ -1050,11 +1058,15 @@ class ResenaApp(tk.Tk):
             "rappi_email":   self.rappi_email.get(),
             "output_dir":    self.output_dir.get(),
             "recordar_pass": self.recordar_pass.get(),
+            "peya_email":    self.peya_email.get(),
+            "recordar_peya": self.recordar_peya.get(),
             "fecha_desde":   self.fecha_desde.get(),
             "fecha_hasta":   self.fecha_hasta.get(),
         }
         if self.recordar_pass.get():
             cfg["rappi_password"] = self.rappi_password.get()
+        if self.recordar_peya.get():
+            cfg["peya_password"] = self.peya_password.get()
         CONFIG_FILE.write_text(json.dumps(cfg))
 
     # ── UI ────────────────────────────────────────────────────────────────────
@@ -1170,15 +1182,37 @@ class ResenaApp(tk.Tk):
         # PedidosYa
         c_peya = Card(left, "PEDIDOSYA", C_PEYA, logo_photo=logo_peya)
         c_peya.pack(fill="x", pady=(0,8))
-        info = tk.Frame(c_peya.body, bg="#F8F8F6",
-                        highlightbackground="#EBEBEB", highlightthickness=1)
-        info.pack(fill="x")
-        tk.Label(info,
-                 text="Se abrirá el browser al iniciar. Completá el código SMS\n"
-                      "y hacé clic en Continuar cuando estés dentro del portal.",
-                 bg="#F8F8F6", fg="#999999", font=(FONT, 9),
-                 justify="left", wraplength=340).pack(
-                 anchor="w", padx=10, pady=8)
+        bp = c_peya.body
+        bp.columnconfigure(0, weight=1)
+        bp.columnconfigure(1, weight=1)
+
+        fpe = tk.Frame(bp, bg=WHITE)
+        fpe.grid(row=0, column=0, sticky="ew", padx=(0,6), pady=(0,6))
+        fpe.columnconfigure(0, weight=1)
+        tk.Label(fpe, text="EMAIL", bg=WHITE, fg=MUTED,
+                 font=(FONT, 8, "bold")).pack(anchor="w")
+        tk.Entry(fpe, textvariable=self.peya_email, font=(FONT, 11),
+                 bg=FIELD_BG, fg="#222", relief="flat",
+                 highlightbackground=BORDER, highlightthickness=1).pack(
+                 fill="x", ipady=5)
+
+        fpp = tk.Frame(bp, bg=WHITE)
+        fpp.grid(row=0, column=1, sticky="ew", padx=(6,0), pady=(0,6))
+        fpp.columnconfigure(0, weight=1)
+        tk.Label(fpp, text="CONTRASEÑA", bg=WHITE, fg=MUTED,
+                 font=(FONT, 8, "bold")).pack(anchor="w")
+        tk.Entry(fpp, textvariable=self.peya_password, show="●",
+                 font=(FONT, 11), bg=FIELD_BG, fg="#222", relief="flat",
+                 highlightbackground=BORDER, highlightthickness=1).pack(
+                 fill="x", ipady=5)
+
+        save_peya = tk.Frame(bp, bg=WHITE)
+        save_peya.grid(row=1, column=0, columnspan=2, sticky="w")
+        tk.Checkbutton(save_peya, text="Recordar contraseña",
+                       variable=self.recordar_peya,
+                       bg=WHITE, fg=MUTED, font=(FONT, 9),
+                       activebackground=WHITE,
+                       selectcolor=WHITE).pack(side="left")
 
         # Mercado Libre
         c_ml = Card(left, "MERCADO LIBRE", C_ML, logo_photo=logo_ml)
@@ -1225,8 +1259,8 @@ class ResenaApp(tk.Tk):
             badge.pack(side="right")
             self._badges[app] = badge
 
-        self._set_badge("PedidosYa", "Login pendiente", "#FAEEDA", "#854F0B")
-        self._set_badge("Rappi",     "Automático",      "#EAF3DE", "#3B6D11")
+        self._set_badge("PedidosYa", "Automático",   "#EAF3DE", "#3B6D11")
+        self._set_badge("Rappi",     "Automático",   "#EAF3DE", "#3B6D11")
         self._set_badge("Mercado Libre", "Sin CSV",     "#F5F5F3", "#888888")
 
         # Log
@@ -1267,7 +1301,7 @@ class ResenaApp(tk.Tk):
         self.btn.pack(fill="x", pady=(0,6))
         
         self.btn_continuar = tk.Button(
-            right, text="✓  Continuar — PedidosYa completado",
+            right, text="✓  Continuar — Verificación completada",
             bg=C_PEYA, fg=WHITE, font=(FONT, 11, "bold"),
             relief="flat", bd=0, pady=9, cursor="hand2",
             activebackground="#c0003a", activeforeground=WHITE,
@@ -1333,6 +1367,8 @@ class ResenaApp(tk.Tk):
         self._set_badge("PedidosYa", "OK", "#EAF3DE", "#3B6D11")
 
     def _cancelar(self):
+        if self._peya_proc and self._peya_proc.poll() is None:
+            self._peya_proc.terminate()
         if self._proc and self._proc.poll() is None:
             self._proc.terminate()
         flag = Path(__file__).parent / ".peya_login_ok"
@@ -1367,18 +1403,26 @@ class ResenaApp(tk.Tk):
         self.log.delete("1.0", "end")
         self.log.config(state="disabled")
         self.progress_var.set(0)
-        self._set_badge("PedidosYa", "Login pendiente", "#FAEEDA", "#854F0B")
+        self._set_badge("PedidosYa", "Conectando...", "#FAEEDA", "#854F0B")
         self._set_badge("Rappi", "Esperando...", "#F5F5F3", "#888888")
 
         threading.Thread(target=self._run_proceso, daemon=True).start()
 
     def _hacer_login_peya(self, desde: str, hasta: str):
-        """Corre el helper, devuelve (token, totales_dict) o (None, {})."""
+        """
+        Corre el helper de PedidosYa con Popen para leer señales en tiempo real.
+        El helper intenta login automático; si detecta 2FA imprime {"status":"2fa_required"}
+        y espera el flag file — en ese momento habilitamos btn_continuar.
+        Devuelve (token, totales_dict, device_token, reclamos_data) o (None, {}, "", []).
+        """
         import subprocess as _sp, json as _json
         flag_path  = Path(__file__).parent / ".peya_login_ok"
         state_path = Path(__file__).parent / ".peya_browser_state.json"
         flag_path.unlink(missing_ok=True)
         helper = Path(__file__).parent / "peya_login_helper.py"
+
+        email = self.peya_email.get()
+        pwd   = self.peya_password.get()
 
         # Armar vendor codes por grupo para calcular totales en el helper
         try:
@@ -1393,31 +1437,55 @@ class ResenaApp(tk.Tk):
             grupos_codes = {}
 
         try:
-            result = _sp.run(
+            self._peya_proc = _sp.Popen(
                 [sys.executable, str(helper),
                  str(flag_path), str(state_path),
                  desde, hasta,
-                 _json.dumps(grupos_codes)],
-                capture_output=True, text=True, timeout=300)
+                 _json.dumps(grupos_codes),
+                 email, pwd],
+                stdout=_sp.PIPE, stderr=_sp.PIPE,
+                text=True, encoding="utf-8", errors="replace",
+                creationflags=_sp.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
 
-            out = result.stdout.strip()
-            if out:
-                data = _json.loads(out)
-                token          = data.get("token")
-                totales        = data.get("totales", {})
-                device_token   = data.get("device_token", "")
-                reclamos_data  = data.get("reclamos_data", [])
+            last_data = None
+            for line in self._peya_proc.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = _json.loads(line)
+                    if obj.get("status") == "2fa_required":
+                        # Pedir al usuario que complete la verificación en el browser
+                        self._log("PedidosYa: se requiere verificación adicional — "
+                                  "completá el proceso en el browser y hacé clic en Continuar.", "warn")
+                        self._set_status("PedidosYa: completá la verificación en el browser...", 8)
+                        self.after(0, lambda: self.btn_continuar.config(state="normal"))
+                    elif obj.get("token") is not None:
+                        last_data = obj
+                except Exception:
+                    pass  # líneas no-JSON se ignoran
+
+            self._peya_proc.wait()
+
+            stderr_out = self._peya_proc.stderr.read()
+            if stderr_out and not last_data:
+                self._log(f"PedidosYa error: {stderr_out[-300:]}", "error")
+
+            if last_data:
+                token         = last_data.get("token")
+                totales       = last_data.get("totales", {})
+                device_token  = last_data.get("device_token", "")
+                reclamos_data = last_data.get("reclamos_data", [])
                 if token:
                     return token, totales, device_token, reclamos_data
-            if result.stderr:
-                self._log(f"PedidosYa error: {result.stderr[-200:]}", "error")
+
             return None, {}, "", []
-        except _sp.TimeoutExpired:
-            self._log("PedidosYa: timeout de login.", "error")
-            return None, {}, "", []
+
         except Exception as e:
             self._log(f"PedidosYa error: {e}", "error")
             return None, {}, "", []
+        finally:
+            self._peya_proc = None
 
     def _run_proceso(self):
         import subprocess
@@ -1434,9 +1502,8 @@ class ResenaApp(tk.Tk):
         self._set_status("Iniciando...", 2)
 
         # ── Login PedidosYa ────────────────────────────────────────────────
-        self._log("PedidosYa: abriendo browser para login manual...", "info")
-        self._set_status("PedidosYa: completá el login en el browser...", 5)
-        self.after(0, lambda: self.btn_continuar.config(state="normal"))
+        self._log("PedidosYa: iniciando login automático...", "info")
+        self._set_status("PedidosYa: iniciando sesión...", 5)
 
         peya_token, peya_totales, peya_device_token, peya_reclamos_data = self._hacer_login_peya(desde, hasta)
         if not peya_token:

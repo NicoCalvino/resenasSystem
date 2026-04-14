@@ -7,9 +7,7 @@ REM ============================================================
 REM  Configuracion
 REM ============================================================
 set "PY_VER=3.11.9"
-set "PY_ZIP_NAME=python-3.11.9-embed-amd64.zip"
-set "PY_URL=https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip"
-set "GETPIP_URL=https://bootstrap.pypa.io/get-pip.py"
+set "PY_URL=https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
 
 set "APP_DIR=%~dp0"
 if "%APP_DIR:~-1%"=="\" set "APP_DIR=%APP_DIR:~0,-1%"
@@ -40,31 +38,34 @@ pause
 
 
 REM ============================================================
-REM  [1/4] Python portable
+REM  [1/4] Python portable (instalador completo, incluye tkinter)
 REM ============================================================
 echo.
 echo  [1/4] Configurando Python portable...
 
-if exist "%PY_EXE%" (
-    echo  OK: Python portable ya esta listo.
-    goto :pip_check
+if exist "%PYW_EXE%" (
+    REM Verificar que tkinter funciona
+    "%PY_EXE%" -c "import tkinter" >nul 2>&1
+    if not errorlevel 1 (
+        echo  OK: Python portable ya esta listo.
+        goto :deps
+    )
+    echo  AVISO: Python portable existe pero le falta tkinter. Reinstalando...
+    rmdir /s /q "%PY_DIR%" >nul 2>&1
 )
 
 echo  Descargando Python %PY_VER% ...
-echo  ^(~25 MB^)
+echo  (~25 MB)
 echo.
 
-REM Intentar con curl.exe primero (disponible en Windows 10+)
 curl.exe --version >nul 2>&1
 if not errorlevel 1 (
-    curl.exe -L --progress-bar -o "%APP_DIR%\py_embed.zip" "%PY_URL%"
+    curl.exe -L --progress-bar -o "%APP_DIR%\python_installer.exe" "%PY_URL%"
 ) else (
-    REM Fallback: PowerShell
-    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-        "Invoke-WebRequest -Uri '%PY_URL%' -OutFile '%APP_DIR%\py_embed.zip' -UseBasicParsing"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri '%PY_URL%' -OutFile '%APP_DIR%\python_installer.exe' -UseBasicParsing"
 )
 
-if not exist "%APP_DIR%\py_embed.zip" (
+if not exist "%APP_DIR%\python_installer.exe" (
     echo.
     echo  ERROR: No se pudo descargar Python.
     echo  Verifica tu conexion a internet e intenta de nuevo.
@@ -73,59 +74,28 @@ if not exist "%APP_DIR%\py_embed.zip" (
 )
 
 echo.
-echo  Extrayendo...
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-    "Expand-Archive -Path '%APP_DIR%\py_embed.zip' -DestinationPath '%PY_DIR%' -Force"
-del "%APP_DIR%\py_embed.zip" >nul 2>&1
+echo  Instalando Python en la carpeta de la aplicacion...
+echo  (esto puede tardar 1-2 minutos)
+echo.
 
-if not exist "%PY_EXE%" (
+"%APP_DIR%\python_installer.exe" /quiet ^
+    InstallAllUsers=0 ^
+    TargetDir="%PY_DIR%" ^
+    Include_launcher=0 ^
+    Include_test=0 ^
+    Include_doc=0 ^
+    PrependPath=0 ^
+    Shortcuts=0
+
+del "%APP_DIR%\python_installer.exe" >nul 2>&1
+
+if not exist "%PYW_EXE%" (
     echo.
-    echo  ERROR: No se pudo extraer Python.
+    echo  ERROR: No se pudo instalar Python.
     pause
     exit /b 1
 )
-echo  OK: Python extraido en python-portable\
-
-REM Habilitar site-packages en Python embeddable
-REM (descomentar "#import site" en el archivo .pth)
-for %%f in ("%PY_DIR%\python*._pth") do (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-        "(Get-Content '%%f') -replace '#import site','import site' | Set-Content '%%f'"
-)
-
-:pip_check
-if exist "%PIP_EXE%" (
-    echo  OK: pip ya esta instalado.
-    goto :deps
-)
-
-echo  Instalando pip...
-curl.exe --version >nul 2>&1
-if not errorlevel 1 (
-    curl.exe -L --silent -o "%PY_DIR%\get-pip.py" "%GETPIP_URL%"
-) else (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-        "Invoke-WebRequest -Uri '%GETPIP_URL%' -OutFile '%PY_DIR%\get-pip.py' -UseBasicParsing"
-)
-
-if not exist "%PY_DIR%\get-pip.py" (
-    echo.
-    echo  ERROR: No se pudo descargar pip.
-    echo  Verifica tu conexion a internet e intenta de nuevo.
-    pause
-    exit /b 1
-)
-
-"%PY_EXE%" "%PY_DIR%\get-pip.py" --quiet
-del "%PY_DIR%\get-pip.py" >nul 2>&1
-
-if not exist "%PIP_EXE%" (
-    echo.
-    echo  ERROR: No se pudo instalar pip.
-    pause
-    exit /b 1
-)
-echo  OK: pip instalado.
+echo  OK: Python instalado en python-portable\
 
 
 REM ============================================================
@@ -134,7 +104,7 @@ REM ============================================================
 :deps
 echo.
 echo  [2/4] Instalando dependencias de la aplicacion...
-echo  ^(~2-3 minutos^)
+echo  (~2-3 minutos)
 echo.
 
 "%PIP_EXE%" install -r "%APP_DIR%\requirements.txt" --quiet
@@ -153,7 +123,7 @@ REM  [3/4] Chromium
 REM ============================================================
 echo.
 echo  [3/4] Descargando Chromium...
-echo  Este es el paso mas largo ^(~150 MB^). No cierres esta ventana.
+echo  Este es el paso mas largo (~150 MB). No cierres esta ventana.
 echo.
 
 "%PY_EXE%" -m playwright install chromium
@@ -184,14 +154,7 @@ if not exist "%APP_DIR%\iniciar.vbs" (
 set "VBS_FULL=%APP_DIR%\iniciar.vbs"
 set "LNK_PATH=%USERPROFILE%\Desktop\Informes de Resenas.lnk"
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-    "$s=(New-Object -COM WScript.Shell).CreateShortcut('%LNK_PATH%');" ^
-    "$s.TargetPath='wscript.exe';" ^
-    "$s.Arguments='\"%VBS_FULL%\"';" ^
-    "$s.WorkingDirectory='%APP_DIR%';" ^
-    "$s.Description='Informes de Resenas Negativas';" ^
-    "$s.IconLocation='shell32.dll,13';" ^
-    "$s.Save()" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=(New-Object -COM WScript.Shell).CreateShortcut('%LNK_PATH%'); $s.TargetPath='wscript.exe'; $s.Arguments=chr(34)+'%VBS_FULL%'+chr(34); $s.WorkingDirectory='%APP_DIR%'; $s.Description='Informes de Resenas Negativas'; $s.IconLocation='shell32.dll,13'; $s.Save()" >nul 2>&1
 
 if errorlevel 1 (
     echo  AVISO: No se pudo crear el acceso directo en el Escritorio.
