@@ -24,10 +24,13 @@ from dotenv import load_dotenv  # <-- 1. Importar la función
 # ── setup path ────────────────────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).parent))
 
-from extractors.rappi       import extraer_rappi
-from extractors.pedidosya   import extraer_pedidosya
-from extractors.mercadopago import (parsear_csv_ml, encontrar_csv_mas_reciente,
-                                    parsear_totales_ml, encontrar_csv_totales)
+from extractors.rappi        import extraer_rappi
+from extractors.pedidosya    import (extraer_pedidosya,
+                                     descargar_reclamos_peya_webhook,
+                                     parsear_reclamos_peya_webhook)
+from extractors.mercadopago  import (parsear_csv_ml, encontrar_csv_mas_reciente,
+                                     parsear_totales_ml, encontrar_csv_totales,
+                                     descargar_reclamos_desde_webhook)
 from processor.procesador   import Procesador
 from report.generador_pdf   import build_report
 from report.generador_excel import generar_excel
@@ -47,8 +50,13 @@ def parse_args():
     p = argparse.ArgumentParser(description="Sistema de reseñas negativas")
     p.add_argument("--desde",    default=None, help="Fecha inicio YYYY-MM-DD (default: ayer)")
     p.add_argument("--hasta",    default=None, help="Fecha fin YYYY-MM-DD (default: hoy)")
-    p.add_argument("--mp-csv",     default=None, help="Ruta al CSV de reseñas de Mercado Libre")
-    p.add_argument("--mp-totales", default=None, help="Ruta al CSV de totales de Mercado Libre")
+    p.add_argument("--mp-csv",        default=None, help="Ruta al CSV de reseñas de Mercado Libre")
+    p.add_argument("--mp-totales",    default=None, help="Ruta al CSV de totales de Mercado Libre")
+    p.add_argument("--ml-reclamos",   default=None,  help="Ruta al CSV de reclamos de Mercado Libre")
+    p.add_argument("--peya-reclamos", default=None,  help="Ruta al CSV de reclamos de PedidosYa (webhook n8n)")
+    p.add_argument("--skip-rappi",    action="store_true", help="Omitir extracción de Rappi")
+    p.add_argument("--skip-peya",     action="store_true", help="Omitir extracción de PedidosYa")
+    p.add_argument("--skip-ml",       action="store_true", help="Omitir extracción de Mercado Libre")
     p.add_argument("--headless", default="true", help="true/false — mostrar browser")
     p.add_argument("--solo-pdf", default=None, help="Generar PDF de prueba sin extracción (grupo)")
     p.add_argument("--output",   default="./informes", help="Carpeta de salida de PDFs")
@@ -82,51 +90,108 @@ async def main():
     totales_peya:   dict[str, int] = {}
     totales_ml:     dict[str, int] = {}
 
-    # — PedidosYa primero (login manual — el usuario debe completarlo antes de continuar)
-    logger.info("── Extrayendo PedidosYa...")
-    try:
-        rs, rcs, tots = await extraer_pedidosya(fecha_desde, fecha_hasta)
-        todas_resenas.extend(rs)
-        todos_reclamos.extend(rcs)
-        for g, n in tots.items():
-            totales_grupo[g] = totales_grupo.get(g, 0) + n
-            totales_peya[g] = totales_peya.get(g, 0) + n
-        logger.info(f"PedidosYa: {len(rs)} reseñas negativas, {len(rcs)} reclamos")
-    except Exception as e:
-        logger.error(f"PedidosYa falló: {e}")
-
-    # — Rappi
-    rappi_email    = os.environ.get("RAPPI_EMAIL")
-    rappi_password = os.environ.get("RAPPI_PASSWORD")
-    if rappi_email and rappi_password:
-        logger.info("── Extrayendo Rappi...")
+    # — PedidosYa
+    if args.skip_peya:
+        logger.info("── PedidosYa: omitido (desactivado desde la GUI)")
+    else:
+        logger.info("── Extrayendo PedidosYa...")
         try:
-            rs, rcs, tots = await extraer_rappi(
-                rappi_email, rappi_password, fecha_desde, fecha_hasta, headless)
+            rs, rcs, tots = await extraer_pedidosya(fecha_desde, fecha_hasta)
             todas_resenas.extend(rs)
             todos_reclamos.extend(rcs)
             for g, n in tots.items():
                 totales_grupo[g] = totales_grupo.get(g, 0) + n
-                totales_rappi[g] = totales_rappi.get(g, 0) + n
-            logger.info(f"Rappi: {len(rs)} reseñas negativas, {len(rcs)} reclamos")
+                totales_peya[g] = totales_peya.get(g, 0) + n
+            logger.info(f"PedidosYa: {len(rs)} reseñas negativas, {len(rcs)} reclamos")
         except Exception as e:
-            logger.error(f"Rappi falló: {e}")
-    else:
-        logger.warning("Rappi: credenciales no configuradas (RAPPI_EMAIL / RAPPI_PASSWORD)")
+            logger.error(f"PedidosYa falló: {e}")
 
-    # — Mercado Libre (CSVs descargados manualmente del Looker)
-    ruta_ml = args.mp_csv or encontrar_csv_mas_reciente("./mercadopago")
-    if ruta_ml:
-        logger.info(f"── Procesando CSV Mercado Libre (reseñas): {ruta_ml}")
-        try:
-            rs = parsear_csv_ml(ruta_ml, fecha_desde, fecha_hasta)
-            todas_resenas.extend(rs)
-            logger.info(f"Mercado Libre: {len(rs)} reseñas negativas")
-        except Exception as e:
-            logger.error(f"Mercado Libre CSV reseñas falló: {e}")
+        # — Reclamos PedidosYa (via webhook n8n)
+        ruta_peya_reclamos = args.peya_reclamos or os.environ.get("PEYA_RECLAMOS_CSV")
+        if not ruta_peya_reclamos:
+            webhook_peya = os.environ.get("PEYA_RECLAMOS_WEBHOOK", "").strip().strip('"').strip("'")
+            if webhook_peya:
+                logger.info("── Descargando reclamos PedidosYa desde webhook n8n...")
+                try:
+                    ruta_peya_reclamos = descargar_reclamos_peya_webhook(webhook_peya)
+                except Exception as e:
+                    logger.error(f"PedidosYa reclamos: descarga desde webhook falló: {e}")
+
+        if ruta_peya_reclamos:
+            logger.info(f"── Procesando CSV reclamos PedidosYa: {ruta_peya_reclamos}")
+            try:
+                reclamos_peya = parsear_reclamos_peya_webhook(ruta_peya_reclamos, fecha_desde, fecha_hasta)
+                todos_reclamos.extend(reclamos_peya)
+                logger.info(f"PedidosYa reclamos: {len(reclamos_peya)} importados")
+            except Exception as e:
+                logger.error(f"PedidosYa CSV reclamos falló: {e}")
+        else:
+            logger.info("PedidosYa: no se proporcionó CSV de reclamos — omitiendo")
+            logger.info("  → Configurá PEYA_RECLAMOS_WEBHOOK en .env o usá --peya-reclamos /ruta/archivo.csv")
+
+    # — Rappi
+    if args.skip_rappi:
+        logger.info("── Rappi: omitido (desactivado desde la GUI)")
     else:
-        logger.info("Mercado Libre: no se encontró CSV de reseñas — omitiendo")
-        logger.info("  → Colocá el CSV en ./mercadopago/ o usá --mp-csv /ruta/archivo.csv")
+        rappi_email    = os.environ.get("RAPPI_EMAIL")
+        rappi_password = os.environ.get("RAPPI_PASSWORD")
+        if rappi_email and rappi_password:
+            logger.info("── Extrayendo Rappi...")
+            try:
+                rs, rcs, tots = await extraer_rappi(
+                    rappi_email, rappi_password, fecha_desde, fecha_hasta, headless)
+                todas_resenas.extend(rs)
+                todos_reclamos.extend(rcs)
+                for g, n in tots.items():
+                    totales_grupo[g] = totales_grupo.get(g, 0) + n
+                    totales_rappi[g] = totales_rappi.get(g, 0) + n
+                logger.info(f"Rappi: {len(rs)} reseñas negativas, {len(rcs)} reclamos")
+            except Exception as e:
+                logger.error(f"Rappi falló: {e}")
+        else:
+            logger.warning("Rappi: credenciales no configuradas (RAPPI_EMAIL / RAPPI_PASSWORD)")
+
+    # — Mercado Libre
+    if args.skip_ml:
+        logger.info("── Mercado Libre: omitido (desactivado desde la GUI)")
+    else:
+        ruta_ml = args.mp_csv or encontrar_csv_mas_reciente("./mercadopago")
+        if ruta_ml:
+            logger.info(f"── Procesando CSV Mercado Libre (reseñas): {ruta_ml}")
+            try:
+                rs = parsear_csv_ml(ruta_ml, fecha_desde, fecha_hasta)
+                todas_resenas.extend(rs)
+                logger.info(f"Mercado Libre: {len(rs)} reseñas negativas")
+            except Exception as e:
+                logger.error(f"Mercado Libre CSV reseñas falló: {e}")
+        else:
+            logger.info("Mercado Libre: no se encontró CSV de reseñas — omitiendo")
+            logger.info("  → Colocá el CSV en ./mercadopago/ o usá --mp-csv /ruta/archivo.csv")
+
+        ruta_ml_reclamos = args.ml_reclamos or os.environ.get("ML_RECLAMOS_CSV")
+
+        # Si no hay CSV manual, intentar descargar desde webhook de n8n
+        if not ruta_ml_reclamos:
+            webhook_url = os.environ.get("ML_RECLAMOS_WEBHOOK", "").strip().strip('"').strip("'")
+            if webhook_url:
+                logger.info("── Descargando reclamos ML desde webhook n8n...")
+                try:
+                    ruta_ml_reclamos = descargar_reclamos_desde_webhook(webhook_url)
+                except Exception as e:
+                    logger.error(f"Mercado Libre reclamos: descarga desde webhook falló: {e}")
+
+        if ruta_ml_reclamos:
+            logger.info(f"── Procesando CSV reclamos Mercado Libre: {ruta_ml_reclamos}")
+            try:
+                from extractors.mercadopago import parsear_reclamos_ml
+                reclamos_ml = parsear_reclamos_ml(ruta_ml_reclamos, fecha_desde, fecha_hasta)
+                todos_reclamos.extend(reclamos_ml)
+                logger.info(f"Mercado Libre reclamos: {len(reclamos_ml)} importados")
+            except Exception as e:
+                logger.error(f"Mercado Libre CSV reclamos falló: {e}")
+        else:
+            logger.info("Mercado Libre: no se proporcionó CSV de reclamos — omitiendo")
+            logger.info("  → Configurá ML_RECLAMOS_WEBHOOK en .env o usá --ml-reclamos /ruta/archivo.csv")
 
     # Totales ML (segundo CSV del Looker)
     ruta_ml_totales = args.mp_totales or encontrar_csv_totales("./mercadopago")
@@ -251,6 +316,7 @@ def _adaptar_reclamos(reclamos):
         {
             "fecha":             rc.fecha_orden.strftime("%d/%m/%Y %H:%M"),
             "orden":             rc.orden_id,
+            "app":               rc.app,
             "marca":             rc.marca,
             "platos_pedidos":    rc.platos_pedidos,
             "platos_reclamados": rc.platos_reclamados,

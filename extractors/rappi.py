@@ -264,6 +264,10 @@ def api_reclamos_ordenes(token, store_ids, desde, hasta) -> list[dict]:
         r = requests.post(COMP_SALES_URL, headers=_h(token), json=body, timeout=60)
         r.raise_for_status()
 
+        if not r.text.strip():
+            logger.warning(f"Rappi reclamos órdenes pág {page}: respuesta vacía de la API — omitiendo")
+            break
+
         entries = r.json().get("entries", [])
         logger.info(f"Rappi reclamos órdenes pág {page}: {len(entries)} registros")
 
@@ -303,6 +307,9 @@ def api_reclamos_detalles(token, store_ids, order_ids: list[str]) -> dict[str, l
         try:
             r = requests.post(COMP_URL, headers=_h(token), json=body, timeout=60)
             r.raise_for_status()
+            if not r.text.strip():
+                logger.warning(f"Rappi reclamo detalle {oid_str}: respuesta vacía — omitiendo")
+                continue
             entries = r.json().get("entries", [])
         except Exception as e:
             logger.error(f"Rappi reclamo detalle {oid_str}: {e}")

@@ -241,6 +241,109 @@ def parsear_totales_ml(ruta_csv: str) -> dict[str, int]:
     return totales_por_grupo
 
 
+def parsear_reclamos_ml(
+    ruta_csv: str,
+    fecha_desde: datetime,
+    fecha_hasta: datetime,
+) -> list:
+    """
+    Lee el CSV de reclamos de Mercado Libre y devuelve objetos Reclamo.
+
+    Columnas del CSV:
+      FECHA_CREACION, HORA_DIA_RECLAMO, ORDER_ID, MOTIVO, NOMBRE_LOCAL,
+      COMENTARIO_COMPRADOR, ITEM_NAME
+
+    El archivo contiene datos históricos; se filtra por fecha_desde / fecha_hasta.
+    El plato pedido y el reclamado son siempre el mismo (ITEM_NAME).
+    """
+    from config.models import Reclamo
+
+    ruta = Path(ruta_csv)
+    if not ruta.exists():
+        raise FileNotFoundError(f"ML reclamos: no se encontró '{ruta_csv}'")
+
+    logger.info(f"ML reclamos: procesando '{ruta.name}'")
+
+    reclamos   = []
+    sin_tienda = []
+    filtradas  = 0
+
+    with open(ruta, encoding="utf-8-sig", errors="replace") as f:
+        muestra = f.read(2048); f.seek(0)
+        delim = "," if muestra.count(",") > muestra.count(";") else ";"
+        reader = csv.DictReader(f, delimiter=delim)
+
+        for i, row in enumerate(reader, 2):
+            if not any(v.strip() for v in row.values()):
+                continue
+
+            def col(nombre, default=""):
+                return row.get(nombre, "").strip() or default
+
+            # ── Fecha + hora ──────────────────────────────────────────────
+            fecha_str = col("FECHA_CREACION")
+            hora_str  = col("HORA_DIA_RECLAMO")
+            fecha_hora_str = f"{fecha_str} {hora_str}".strip() if hora_str else fecha_str
+            fecha = None
+            for fmt in ("%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%Y",
+                        "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+                try:
+                    fecha = datetime.strptime(fecha_hora_str, fmt)
+                    break
+                except ValueError:
+                    continue
+            if fecha is None:
+                logger.warning(f"ML reclamos fila {i}: no se pudo parsear fecha '{fecha_hora_str}'")
+                fecha = datetime.now().replace(hour=0, minute=0, second=0)
+
+            # ── Filtro de fechas ──────────────────────────────────────────
+            if fecha_desde and fecha.date() < fecha_desde.date():
+                filtradas += 1
+                continue
+            if fecha_hasta and fecha.date() > fecha_hasta.date():
+                filtradas += 1
+                continue
+
+            # ── Local ─────────────────────────────────────────────────────
+            nombre_local = col("NOMBRE_LOCAL")
+            if not nombre_local:
+                continue
+            tienda = _buscar_tienda(nombre_local)
+            if not tienda:
+                sin_tienda.append(nombre_local)
+                logger.warning(f"ML reclamos fila {i}: tienda no encontrada '{nombre_local}'")
+                continue
+
+            # ── Resto de campos ───────────────────────────────────────────
+            orden_id = col("ORDER_ID") or f"ML-R{i:04d}"
+            plato    = col("ITEM_NAME", "(no especificado)")
+            razon    = col("MOTIVO",    "(no especificado)")
+            comentario = col("COMENTARIO_COMPRADOR")
+
+            reclamos.append(Reclamo(
+                orden_id          = orden_id,
+                app               = "Mercado Libre",
+                marca             = tienda["marca"],
+                local_id          = tienda["grupo"],
+                local_nombre      = tienda["grupo"],
+                fecha_orden       = fecha,
+                platos_pedidos    = plato,
+                platos_reclamados = plato,   # siempre igual en ML
+                razon             = razon,
+                comentario        = comentario,
+            ))
+
+    logger.info(
+        f"ML reclamos: {len(reclamos)} importados — "
+        f"{filtradas} fuera del período — "
+        f"{len(sin_tienda)} tiendas no encontradas"
+    )
+    if sin_tienda:
+        logger.warning(f"ML reclamos: tiendas sin match: {list(set(sin_tienda))}")
+
+    return reclamos
+
+
 def encontrar_csv_totales(carpeta: str = "./mercadopago") -> str | None:
     """Busca el CSV de totales más reciente en la carpeta de ML."""
     carpeta_path = Path(carpeta)
@@ -253,3 +356,51 @@ def encontrar_csv_totales(carpeta: str = "./mercadopago") -> str | None:
         return None
     csvs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return str(csvs[0])
+
+
+# ── DESCARGA DESDE WEBHOOK ────────────────────────────────────────────────────
+
+def descargar_reclamos_desde_webhook(url: str, carpeta: str = "./mercadopago") -> str:
+    """
+    Descarga el CSV de reclamos desde el webhook de n8n y lo guarda localmente.
+
+    Args:
+        url:     URL del webhook de n8n (ej: https://xxx.app.n8n.cloud/webhook/reclamos-meli)
+        carpeta: carpeta donde guardar el archivo (default: ./mercadopago)
+
+    Returns:
+        Ruta al archivo CSV descargado.
+
+    Raises:
+        RuntimeError: si la descarga falla o la respuesta no es un CSV válido.
+    """
+    import urllib.request
+    import urllib.error
+
+    carpeta_path = Path(carpeta)
+    carpeta_path.mkdir(parents=True, exist_ok=True)
+
+    fecha_str   = datetime.now().strftime("%Y%m%d")
+    ruta_destino = str(carpeta_path / f"reclamos_meli_{fecha_str}.csv")
+
+    logger.info(f"ML reclamos: descargando desde webhook...")
+
+    try:
+        with urllib.request.urlopen(url, timeout=30) as response:
+            contenido = response.read()
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"ML reclamos: no se pudo conectar al webhook: {e}")
+
+    # Verificar que es un CSV (al menos tiene comas o puntos y coma)
+    muestra = contenido[:512].decode("utf-8-sig", errors="replace")
+    if "," not in muestra and ";" not in muestra:
+        raise RuntimeError(
+            f"ML reclamos: la respuesta del webhook no parece un CSV válido. "
+            f"Primeros 200 chars: {muestra[:200]}"
+        )
+
+    with open(ruta_destino, "wb") as f:
+        f.write(contenido)
+
+    logger.info(f"ML reclamos: descargado → {ruta_destino} ({len(contenido):,} bytes)")
+    return ruta_destino

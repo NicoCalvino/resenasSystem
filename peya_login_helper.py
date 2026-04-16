@@ -4,9 +4,10 @@ Script auxiliar para el login de PedidosYa.
 2. Si se requiere 2FA, imprime {"status": "2fa_required"} y espera flag manual
 3. Extrae el token + device token
 4. Calcula los totales de órdenes por grupo
-5. Obtiene reclamos (ListOrders + GetOrderDetails) desde el mismo browser
-6. Imprime JSON en stdout:
-   {"token": "...", "totales": {...}, "device_token": "...", "reclamos_data": [...]}
+5. Imprime JSON en stdout:
+   {"token": "...", "totales": {...}, "device_token": "...", "reclamos_data": []}
+
+Nota: los reclamos ya no se obtienen aquí; se descargan por webhook n8n en main.py.
 
 Uso: python peya_login_helper.py <flag_file> <state_file> <desde> <hasta> [vendor_codes_json] [email] [password]
 """
@@ -22,85 +23,6 @@ PEYA_EMAIL   = sys.argv[6] if len(sys.argv) > 6 else ""
 PEYA_PASSWORD= sys.argv[7] if len(sys.argv) > 7 else ""
 
 PERF_URL = "https://vos-api.us.prd.portal.restaurant/v1/vendors/reports/performance"
-GQL_URL  = "https://vagw-api.us.prd.portal.restaurant/query"
-
-GQL_LIST_ORDERS = (
-    "query ListOrders($params: ListOrdersReq!) { "
-    "orders { listOrders(input: $params) { "
-    "nextPageToken orders { "
-    "orderId globalEntityId vendorId vendorName "
-    "orderStatus placedTimestamp orderIssues "
-    "} } } }"
-)
-
-GQL_ORDER_DETAIL = (
-    "query GetOrderDetails($params: OrderReq!) { "
-    "orders { order(input: $params) { "
-    "order { orderId vendorId vendorName "
-    "items { id: productId name } } "
-    "orderIssues { orderIssue metadata { reason } } "
-    "} } }"
-)
-
-
-async def _get_auth_info(page) -> dict:
-    """Extrae token, device token y user/vendor IDs desde localStorage del browser."""
-    return await page.evaluate("""
-        (() => {
-            try {
-                const root = localStorage.getItem('persist:root');
-                const auth = JSON.parse(JSON.parse(root).authentication);
-                const tok  = auth.accessToken || '';
-                let payload = {};
-                try { payload = JSON.parse(atob(tok.split('.')[1])); } catch(e2) {}
-                return {
-                    token:  tok,
-                    device: auth.deviceToken || '',
-                    userId: payload.sub || '',
-                    lpvid:  (payload.metadata && payload.metadata.lpvid) || ''
-                };
-            } catch(e) { return {token:'', device:'', userId:'', lpvid:''}; }
-        })()
-    """) or {}
-
-
-async def _gql(page, body_dict: dict, auth: dict | None = None) -> dict:
-    """
-    Ejecuta una llamada GraphQL usando page.request.post() de Playwright.
-    Esto bypasea las restricciones CORS de JavaScript fetch y accede a las
-    cookies del contexto del browser automáticamente.
-    """
-    if auth is None:
-        auth = await _get_auth_info(page)
-
-    headers = {
-        "Content-Type":              "application/json",
-        "accept":                    "*/*",
-        "accept-language":           "en-US,en;q=0.9,es;q=0.8",
-        "apollographql-client-name": "API Gateway",
-        "x-app-name":                "one-web",
-        "x-country":                 "AR",
-        "x-global-entity-id":        "PY_AR",
-        "Authorization":             f"Bearer {auth.get('token', '')}",
-    }
-    if auth.get("device"):
-        headers["x-rps-device"] = auth["device"]
-    if auth.get("userId"):
-        headers["x-user-id"] = auth["userId"]
-    if auth.get("lpvid"):
-        headers["x-vendor-id"] = auth["lpvid"]
-
-    try:
-        resp = await page.request.post(
-            GQL_URL,
-            data=json.dumps(body_dict),
-            headers=headers,
-        )
-        if not resp.ok:
-            return {"status": resp.status, "data": {}}
-        return {"status": resp.status, "data": await resp.json()}
-    except Exception as e:
-        return {"status": 0, "error": str(e), "data": {}}
 
 
 TOKEN_JS = """
@@ -257,99 +179,12 @@ async def main():
                 else:
                     totales[grupo] = 0
 
-        # ── Reclamos: ListOrders + GetOrderDetails desde este mismo browser ───
-        reclamos_data = []
-        if DESDE and HASTA and GRUPOS_CODES:
-            auth_info = await _get_auth_info(page)
-            # Construir lista de vendors desde GRUPOS_CODES
-            all_vendor_codes = [
-                {"globalEntityId": "PY_AR", "vendorId": code.split(";")[-1]}
-                for codes in GRUPOS_CODES.values()
-                for code in codes
-                if ";" in code and code.split(";")[-1].isdigit()
-            ]
-
-            # ── Paso 1: listar órdenes reclamadas (paginado) ──────────────
-            all_orders = []
-            page_token = None
-            while True:
-                pagination = {"pageSize": 1000}
-                if page_token:
-                    pagination["pageToken"] = page_token
-
-                list_result = await _gql(page, auth=auth_info, body_dict={
-                    "operationName": "ListOrders",
-                    "variables": {
-                        "params": {
-                            "pagination": pagination,
-                            "filter": {"transactionStatuses": ["REFUNDED", "CHARGED"]},
-                            "timeFrom": f"{DESDE}T03:00:00.000Z",
-                            "timeTo":   f"{HASTA}T03:00:00.000Z",
-                            "globalVendorCodes": all_vendor_codes,
-                        }
-                    },
-                    "query": GQL_LIST_ORDERS,
-                })
-
-                if list_result.get("status") != 200:
-                    break
-
-                _r1         = (list_result.get("data") or {})
-                _r2         = (_r1.get("data") or {})
-                _r3         = (_r2.get("orders") or {})
-                list_orders = (_r3.get("listOrders") or {})
-                orders      = list_orders.get("orders") or []
-                next_token  = list_orders.get("nextPageToken")
-                all_orders.extend(orders)
-
-                if not next_token or len(orders) < 1000:
-                    break
-                page_token = next_token
-
-            # ── Paso 2: detalle por orden ─────────────────────────────────
-            for orden in all_orders:
-                oid = str(orden.get("orderId", "")).strip()
-                vid = str(orden.get("vendorId", "")).strip()
-                ts  = str(orden.get("placedTimestamp", ""))
-                if not oid:
-                    continue
-
-                det_result = await _gql(page, auth=auth_info, body_dict={
-                    "operationName": "GetOrderDetails",
-                    "variables": {
-                        "params": {
-                            "orderId":                  oid,
-                            "GlobalVendorCode":         {"globalEntityId": "PY_AR",
-                                                          "vendorId": vid},
-                            "placedTimestamp":          ts,
-                            "isBillingDataFlagEnabled": False,
-                        },
-                        "orderIssueParams": {
-                            "orderId":          oid,
-                            "GlobalVendorCode": {"globalEntityId": "PY_AR",
-                                                  "vendorId": vid},
-                        },
-                        "hasPhotoEvidence": False,
-                    },
-                    "query": GQL_ORDER_DETAIL,
-                })
-
-                detalle = {}
-                if det_result.get("status") == 200:
-                    _d1     = (det_result.get("data") or {})
-                    _d2     = (_d1.get("data") or {})
-                    _d3     = (_d2.get("orders") or {})
-                    detalle = (_d3.get("order") or {})
-
-                reclamos_data.append({"orden": orden, "detalle": detalle})
-                await asyncio.sleep(0.25)
-
         await browser.close()
         print(json.dumps({
             "token":         token,
             "totales":       totales,
             "device_token":  device_token,
-            "reclamos_data": reclamos_data,
+            "reclamos_data": [],
         }), flush=True)
 
 

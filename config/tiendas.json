@@ -192,6 +192,38 @@
     "mp_nombre": "Tea Connection Lacroze"
   },
   {
+    "nombre": "Tea Connection Nordelta",
+    "marca": "Tea Connection",
+    "grupo": "Nordelta",
+    "py_id": null,
+    "rappi_id": null,
+    "mp_nombre": null
+  },
+  {
+    "nombre": "Tea Connection Bernal",
+    "marca": "Tea Connection",
+    "grupo": "Bernal",
+    "py_id": null,
+    "rappi_id": null,
+    "mp_nombre": null
+  },
+  {
+    "nombre": "Tea Connection Lomitas",
+    "marca": "Tea Connection",
+    "grupo": "Lomitas",
+    "py_id": null,
+    "rappi_id": null,
+    "mp_nombre": null
+  },
+  {
+    "nombre": "Tea Connection San Martin",
+    "marca": "Tea Connection",
+    "grupo": "San Martin",
+    "py_id": null,
+    "rappi_id": null,
+    "mp_nombre": null
+  },
+  {
     "nombre": "Tea Connection Turbo Gorostiaga",
     "marca": "Tea Connection",
     "grupo": "Gorostiaga",
@@ -422,6 +454,62 @@
     "py_id": null,
     "rappi_id": null,
     "mp_nombre": "Green Eat Pueyrredon"
+  },
+  {
+    "nombre": "Green Eat San Martin",
+    "marca": "Green Eat",
+    "grupo": "San Martin",
+    "py_id": null,
+    "rappi_id": null,
+    "mp_nombre": null
+  },
+  {
+    "nombre": "Green Eat Roca",
+    "marca": "Green Eat",
+    "grupo": "Roca",
+    "py_id": null,
+    "rappi_id": null,
+    "mp_nombre": null
+  },
+  {
+    "nombre": "Green Eat Unicenter",
+    "marca": "Green Eat",
+    "grupo": "Unicenter",
+    "py_id": null,
+    "rappi_id": null,
+    "mp_nombre": null
+  },
+  {
+    "nombre": "Green Eat Lomitas",
+    "marca": "Green Eat",
+    "grupo": "Lomitas",
+    "py_id": null,
+    "rappi_id": null,
+    "mp_nombre": null
+  },
+  {
+    "nombre": "Green Eat Oroño",
+    "marca": "Green Eat",
+    "grupo": "Oroño",
+    "py_id": null,
+    "rappi_id": null,
+    "mp_nombre": null
+  },
+  {
+    "nombre": "Green Eat Terrazas De Mayo",
+    "marca": "Green Eat",
+    "grupo": "Terrazas De Mayo",
+    "py_id": null,
+    "rappi_id": null,
+    "mp_nombre": null
+  },
+  {
+    "nombre": "Green Eat La Plata Centro",
+    "marca": "Green Eat",
+    "grupo": "La Plata Centro",
+    "py_id": null,
+    "rappi_id": null,
+    "mp_nombre": null
   },
   {
     "nombre": "Green Eat Turbo Asunción",

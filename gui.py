@@ -347,32 +347,71 @@ def _load_img(path, max_h=24):
         return None
 
 
+def _set_widgets_state(frame, state):
+    """Activa o desactiva recursivamente todos los widgets de un frame."""
+    bg = WHITE if state == "normal" else "#F0F0EE"
+    try:
+        frame.configure(bg=bg)
+    except Exception:
+        pass
+    for child in frame.winfo_children():
+        try:
+            child.configure(state=state)
+        except Exception:
+            pass
+        try:
+            child.configure(bg=bg)
+        except Exception:
+            pass
+        _set_widgets_state(child, state)
+
+
 class Card(tk.Frame):
-    """Card con header coloreado y cuerpo blanco."""
-    def __init__(self, parent, title, dot_color, logo_photo=None, **kwargs):
+    """Card con header coloreado y cuerpo blanco. Soporta toggle de activación."""
+    def __init__(self, parent, title, dot_color, logo_photo=None,
+                 enabled_var=None, **kwargs):
         super().__init__(parent, bg=WHITE, relief="flat",
                          highlightbackground=BORDER, highlightthickness=1,
                          **kwargs)
+        self._enabled_var = enabled_var
+
         # Header
         hdr = tk.Frame(self, bg=WHITE,
                        highlightbackground=INNER_SEP, highlightthickness=1)
         hdr.pack(fill="x")
         tk.Canvas(hdr, width=8, height=8, bg=WHITE,
                   highlightthickness=0).pack(side="left", padx=(12,4), pady=10)
-        # dot via canvas
+        # dot
         c = tk.Canvas(hdr, width=8, height=8, bg=WHITE, highlightthickness=0)
         c.pack(side="left", padx=(0,6), pady=10)
         c.create_oval(1, 1, 7, 7, fill=dot_color, outline=dot_color)
         tk.Label(hdr, text=title, bg=WHITE, fg="#555555",
                  font=(FONT, 9, "bold")).pack(side="left", pady=10)
+
+        # Toggle opcional en el header
+        if enabled_var is not None:
+            tk.Checkbutton(hdr, text="Activado", variable=enabled_var,
+                           bg=WHITE, fg=MUTED, font=(FONT, 8),
+                           activebackground=WHITE, selectcolor=WHITE,
+                           cursor="hand2",
+                           command=self._on_toggle).pack(side="right", padx=12)
+
         # Logo opcional en el lado derecho del header
         if logo_photo:
             lbl = tk.Label(hdr, image=logo_photo, bg=WHITE)
-            lbl.image = logo_photo  # mantener referencia
-            lbl.pack(side="right", padx=12, pady=6)
+            lbl.image = logo_photo
+            lbl.pack(side="right", padx=(12 if enabled_var is None else 0), pady=6)
+
         # Body frame
         self.body = tk.Frame(self, bg=WHITE)
         self.body.pack(fill="both", expand=True, padx=14, pady=10)
+
+    def _on_toggle(self):
+        """Activa o desactiva visualmente el cuerpo de la card."""
+        if self._enabled_var is None:
+            return
+        state = "normal" if self._enabled_var.get() else "disabled"
+        _set_widgets_state(self.body, state)
 
 
 def labeled_entry(parent, label_text, var, row, show=None, colspan=1):
@@ -1006,10 +1045,13 @@ class ResenaApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Informes de Reseñas")
-        self.geometry("1220x800")
+        self.geometry("1220x850")
         self.minsize(860, 560)
         self.configure(bg=BG)
 
+        self.rappi_enabled  = tk.BooleanVar(value=True)
+        self.peya_enabled   = tk.BooleanVar(value=True)
+        self.ml_enabled     = tk.BooleanVar(value=True)
         self.rappi_email    = tk.StringVar()
         self.rappi_password = tk.StringVar()
         self.recordar_pass  = tk.BooleanVar(value=False)
@@ -1020,7 +1062,9 @@ class ResenaApp(tk.Tk):
         self.fecha_hasta    = tk.StringVar()
         self.ml_resenas     = tk.StringVar()
         self.ml_totales     = tk.StringVar()
+        self.ml_reclamos    = tk.StringVar()
         self.output_dir     = tk.StringVar(value="./informes")
+        self.excel_path     = tk.StringVar()
         self.running        = False
         self._proc          = None
         self._peya_proc     = None
@@ -1144,7 +1188,8 @@ class ResenaApp(tk.Tk):
         left.grid(row=0, column=0, sticky="nsew", padx=(0,6))
 
         # Rappi
-        c_rappi = Card(left, "RAPPI", C_RAPPI, logo_photo=logo_rappi)
+        c_rappi = Card(left, "RAPPI", C_RAPPI, logo_photo=logo_rappi,
+                       enabled_var=self.rappi_enabled)
         c_rappi.pack(fill="x", pady=(0,8))
         b = c_rappi.body
         b.columnconfigure(0, weight=1)
@@ -1180,7 +1225,8 @@ class ResenaApp(tk.Tk):
                        selectcolor=WHITE).pack(side="left")
 
         # PedidosYa
-        c_peya = Card(left, "PEDIDOSYA", C_PEYA, logo_photo=logo_peya)
+        c_peya = Card(left, "PEDIDOSYA", C_PEYA, logo_photo=logo_peya,
+                      enabled_var=self.peya_enabled)
         c_peya.pack(fill="x", pady=(0,8))
         bp = c_peya.body
         bp.columnconfigure(0, weight=1)
@@ -1215,10 +1261,12 @@ class ResenaApp(tk.Tk):
                        selectcolor=WHITE).pack(side="left")
 
         # Mercado Libre
-        c_ml = Card(left, "MERCADO LIBRE", C_ML, logo_photo=logo_ml)
+        c_ml = Card(left, "MERCADO LIBRE", C_ML, logo_photo=logo_ml,
+                    enabled_var=self.ml_enabled)
         c_ml.pack(fill="x", pady=(0,8))
-        labeled_file(c_ml.body, "CSV reseñas",  self.ml_resenas,  row=0)
-        labeled_file(c_ml.body, "CSV totales",  self.ml_totales,  row=1)
+        labeled_file(c_ml.body, "CSV reseñas",   self.ml_resenas,  row=0)
+        labeled_file(c_ml.body, "CSV totales",   self.ml_totales,  row=1)
+        labeled_file(c_ml.body, "CSV reclamos",  self.ml_reclamos, row=2)
 
         # Período y salida
         c_per = Card(left, "PERÍODO Y SALIDA", DARK)
@@ -1316,10 +1364,75 @@ class ResenaApp(tk.Tk):
             state="disabled", command=self._cancelar)
         self.btn_cancel.pack(fill="x")
 
+        # Separador y botón secundario para regenerar desde Excel
+        sep = tk.Frame(right, bg=BORDER, height=1)
+        sep.pack(fill="x", pady=(12, 8))
+
+        self.btn_excel = tk.Button(
+            right, text="📄  Regenerar PDFs desde Excel",
+            bg=WHITE, fg="#444444", font=(FONT, 10),
+            relief="flat", bd=0, pady=8, cursor="hand2",
+            highlightbackground=BORDER, highlightthickness=1,
+            command=self._iniciar_desde_excel)
+        self.btn_excel.pack(fill="x")
+
         # Actualizar badge ML al escribir la ruta
-        self.ml_resenas.trace_add("write", lambda *_: self._update_ml_badge())
+        self.ml_resenas.trace_add("write",   lambda *_: self._update_ml_badge())
+        self.ml_reclamos.trace_add("write",  lambda *_: self._update_ml_badge())
 
     # ── Helpers UI ────────────────────────────────────────────────────────────
+
+    def _iniciar_desde_excel(self):
+        """Abre un diálogo para elegir el Excel y regenera los PDFs a partir de él."""
+        if self.running:
+            messagebox.showwarning("Proceso en curso",
+                                   "Esperá a que termine el proceso actual.", parent=self)
+            return
+
+        ruta = filedialog.askopenfilename(
+            title="Seleccioná el Excel de reseñas",
+            filetypes=[("Excel", "*.xlsx"), ("Todos", "*")],
+            parent=self,
+        )
+        if not ruta:
+            return
+
+        out = self.output_dir.get() or "./informes"
+
+        # Limpiar log y arrancar en hilo para no bloquear la UI
+        self.running = True
+        self.btn_excel.config(state="disabled", text="Procesando...")
+        self.log.config(state="normal")
+        self.log.delete("1.0", "end")
+        self.log.config(state="disabled")
+        self.progress_var.set(0)
+
+        def _run():
+            try:
+                from regenerar_pdfs import regenerar_desde_excel
+
+                def _log_gui(msg, tag="info"):
+                    self._log(msg, tag)
+
+                self._set_status("Regenerando PDFs desde Excel...", 10)
+                ok, total = regenerar_desde_excel(
+                    ruta_excel=ruta,
+                    output_dir=out,
+                    log_fn=_log_gui,
+                )
+                self._set_status(
+                    f"Completado: {ok}/{total} PDFs generados." if total else "Sin grupos encontrados.",
+                    100,
+                )
+            except Exception as e:
+                self._log(f"Error inesperado: {e}", "error")
+                self._set_status("Error durante la regeneración.", 0)
+            finally:
+                self.running = False
+                self.after(0, lambda: self.btn_excel.config(
+                    state="normal", text="📄  Regenerar PDFs desde Excel"))
+
+        threading.Thread(target=_run, daemon=True).start()
 
     def _abrir_locales(self):
         """Abre (o trae al frente) la ventana de gestión de locales."""
@@ -1403,8 +1516,14 @@ class ResenaApp(tk.Tk):
         self.log.delete("1.0", "end")
         self.log.config(state="disabled")
         self.progress_var.set(0)
-        self._set_badge("PedidosYa", "Conectando...", "#FAEEDA", "#854F0B")
-        self._set_badge("Rappi", "Esperando...", "#F5F5F3", "#888888")
+        if self.peya_enabled.get():
+            self._set_badge("PedidosYa", "Conectando...", "#FAEEDA", "#854F0B")
+        else:
+            self._set_badge("PedidosYa", "Omitido", "#F5F5F3", "#888888")
+        if self.rappi_enabled.get():
+            self._set_badge("Rappi", "Esperando...", "#F5F5F3", "#888888")
+        else:
+            self._set_badge("Rappi", "Omitido", "#F5F5F3", "#888888")
 
         threading.Thread(target=self._run_proceso, daemon=True).start()
 
@@ -1493,39 +1612,56 @@ class ResenaApp(tk.Tk):
         hasta  = self.fecha_hasta.get()
         email  = self.rappi_email.get()
         pwd    = self.rappi_password.get()
-        ml_csv = self.ml_resenas.get()
-        ml_tot = self.ml_totales.get()
-        out    = self.output_dir.get() or "./informes"
+        ml_csv      = self.ml_resenas.get()
+        ml_tot      = self.ml_totales.get()
+        ml_reclamos = self.ml_reclamos.get()
+        out         = self.output_dir.get() or "./informes"
+
+        use_rappi = self.rappi_enabled.get()
+        use_peya  = self.peya_enabled.get()
+        use_ml    = self.ml_enabled.get()
 
         self._log("Iniciando proceso...", "head")
         self._log(f"Período: {desde} → {hasta}", "info")
+        plataformas = [n for n, v in [("Rappi", use_rappi), ("PedidosYa", use_peya), ("ML", use_ml)] if v]
+        self._log(f"Plataformas activas: {', '.join(plataformas) if plataformas else 'ninguna'}", "info")
         self._set_status("Iniciando...", 2)
 
-        # ── Login PedidosYa ────────────────────────────────────────────────
-        self._log("PedidosYa: iniciando login automático...", "info")
-        self._set_status("PedidosYa: iniciando sesión...", 5)
+        # ── Login PedidosYa (solo si está activado) ────────────────────────
+        peya_token = peya_totales = peya_device_token = None
+        if use_peya:
+            self._log("PedidosYa: iniciando login automático...", "info")
+            self._set_status("PedidosYa: iniciando sesión...", 5)
 
-        peya_token, peya_totales, peya_device_token, peya_reclamos_data = self._hacer_login_peya(desde, hasta)
-        if not peya_token:
-            self._log("PedidosYa: login cancelado o fallido.", "warn")
-            self.running = False
-            self.after(0, lambda: self.btn.config(state="normal",
-                                                  text="▶  Generar informes"))
-            self.after(0, lambda: self.btn_cancel.config(state="disabled"))
+            peya_token, peya_totales, peya_device_token, _ = self._hacer_login_peya(desde, hasta)
+            if not peya_token:
+                self._log("PedidosYa: login cancelado o fallido.", "warn")
+                self.running = False
+                self.after(0, lambda: self.btn.config(state="normal",
+                                                      text="▶  Generar informes"))
+                self.after(0, lambda: self.btn_cancel.config(state="disabled"))
+                self.after(0, lambda: self.btn_continuar.config(state="disabled"))
+                return
+
+            self._log(f"PedidosYa: token OK ({len(peya_token)} chars)", "ok")
+            self._set_status("PedidosYa: OK — iniciando extracción...", 15)
             self.after(0, lambda: self.btn_continuar.config(state="disabled"))
-            return
-
-        self._log(f"PedidosYa: token OK ({len(peya_token)} chars)", "ok")
-        self._set_status("PedidosYa: OK — iniciando extracción...", 15)
-        self.after(0, lambda: self.btn_continuar.config(state="disabled"))
-        self._set_badge("PedidosYa", "OK", "#EAF3DE", "#3B6D11")
+            self._set_badge("PedidosYa", "OK", "#EAF3DE", "#3B6D11")
+        else:
+            self._log("PedidosYa: desactivado, se omite.", "warn")
+            self._set_badge("PedidosYa", "Omitido", "#F5F5F3", "#888888")
+            self.after(0, lambda: self.btn_continuar.config(state="disabled"))
 
         # ── Subprocess principal ───────────────────────────────────────────
         cmd = [sys.executable, str(Path(__file__).parent / "main.py"),
                "--desde", desde, "--hasta", hasta,
                "--headless", "true", "--output", out]
-        if ml_csv: cmd += ["--mp-csv",     ml_csv]
-        if ml_tot: cmd += ["--mp-totales", ml_tot]
+        if ml_csv:      cmd += ["--mp-csv",      ml_csv]
+        if ml_tot:      cmd += ["--mp-totales",  ml_tot]
+        if ml_reclamos: cmd += ["--ml-reclamos", ml_reclamos]
+        if not use_rappi: cmd += ["--skip-rappi"]
+        if not use_peya:  cmd += ["--skip-peya"]
+        if not use_ml:    cmd += ["--skip-ml"]
 
         env = os.environ.copy()
         env_file = Path(__file__).parent / ".env"
@@ -1537,13 +1673,10 @@ class ResenaApp(tk.Tk):
                     env.setdefault(k.strip(), v.strip())
         env["RAPPI_EMAIL"]    = email
         env["RAPPI_PASSWORD"] = pwd
-        env["PEYA_TOKEN"]     = peya_token
+        if peya_token:
+            env["PEYA_TOKEN"] = peya_token
         if peya_device_token:
             env["PEYA_DEVICE_TOKEN"] = peya_device_token
-        if peya_reclamos_data:
-            import json as _json
-            env["PEYA_RECLAMOS_DATA"] = _json.dumps(peya_reclamos_data)
-            self._log(f"PedidosYa: {len(peya_reclamos_data)} reclamos del helper", "ok")
         if peya_totales:
             import json as _json
             env["PEYA_TOTALES"] = _json.dumps(peya_totales)
