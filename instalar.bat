@@ -54,15 +54,19 @@ if exist "%PYW_EXE%" (
     rmdir /s /q "%PY_DIR%" >nul 2>&1
 )
 
-echo  Descargando Python %PY_VER% ...
-echo  (~25 MB)
-echo.
-
-curl.exe --version >nul 2>&1
-if not errorlevel 1 (
-    curl.exe -L --progress-bar -o "%APP_DIR%\python_installer.exe" "%PY_URL%"
+if exist "%APP_DIR%\python_installer.exe" (
+    echo  OK: Instalador encontrado localmente, omitiendo descarga.
 ) else (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri '%PY_URL%' -OutFile '%APP_DIR%\python_installer.exe' -UseBasicParsing"
+    echo  Descargando Python %PY_VER% ...
+    echo  (~25 MB)
+    echo.
+
+    curl.exe --version >nul 2>&1
+    if not errorlevel 1 (
+        curl.exe -L --progress-bar -o "%APP_DIR%\python_installer.exe" "%PY_URL%"
+    ) else (
+        powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri '%PY_URL%' -OutFile '%APP_DIR%\python_installer.exe' -UseBasicParsing"
+    )
 )
 
 if not exist "%APP_DIR%\python_installer.exe" (
