@@ -376,9 +376,10 @@ class Card(tk.Frame):
         self._enabled_var = enabled_var
 
         # Header
-        hdr = tk.Frame(self, bg=WHITE,
-                       highlightbackground=INNER_SEP, highlightthickness=1)
-        hdr.pack(fill="x")
+        self.hdr = tk.Frame(self, bg=WHITE,
+                            highlightbackground=INNER_SEP, highlightthickness=1)
+        self.hdr.pack(fill="x")
+        hdr = self.hdr
         tk.Canvas(hdr, width=8, height=8, bg=WHITE,
                   highlightthickness=0).pack(side="left", padx=(12,4), pady=10)
         # dot
@@ -1246,7 +1247,7 @@ class ResenaApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Informes de Reseñas")
-        self.geometry("1220x850")
+        self.geometry("1220x750")
         self.minsize(860, 560)
         self.configure(bg=BG)
 
@@ -1398,10 +1399,17 @@ class ResenaApp(tk.Tk):
         left = tk.Frame(cols, bg=BG)
         left.grid(row=0, column=0, sticky="nsew", padx=(0,6))
 
+        # Badges de estado — se alojan en el header de cada tarjeta
+        self._badges = {}
+
         # Rappi
         c_rappi = Card(left, "RAPPI", C_RAPPI, logo_photo=logo_rappi,
                        enabled_var=self.rappi_enabled)
         c_rappi.pack(fill="x", pady=(0,8))
+        _rappi_badge = tk.Label(c_rappi.hdr, font=(FONT, 8, "bold"), padx=7, pady=2)
+        _rappi_badge.pack(side="right", padx=(4, 0))
+        self._badges["Rappi"] = _rappi_badge
+        self._set_badge("Rappi", "Automático", "#EAF3DE", "#3B6D11")
         b = c_rappi.body
         b.columnconfigure(0, weight=1)
         b.columnconfigure(1, weight=1)
@@ -1439,6 +1447,10 @@ class ResenaApp(tk.Tk):
         c_peya = Card(left, "PEDIDOSYA", C_PEYA, logo_photo=logo_peya,
                       enabled_var=self.peya_enabled)
         c_peya.pack(fill="x", pady=(0,8))
+        _peya_badge = tk.Label(c_peya.hdr, font=(FONT, 8, "bold"), padx=7, pady=2)
+        _peya_badge.pack(side="right", padx=(4, 0))
+        self._badges["PedidosYa"] = _peya_badge
+        self._set_badge("PedidosYa", "Automático", "#EAF3DE", "#3B6D11")
         bp = c_peya.body
         bp.columnconfigure(0, weight=1)
         bp.columnconfigure(1, weight=1)
@@ -1475,12 +1487,15 @@ class ResenaApp(tk.Tk):
         c_ml = Card(left, "MERCADO LIBRE", C_ML, logo_photo=logo_ml,
                     enabled_var=self.ml_enabled)
         c_ml.pack(fill="x", pady=(0,8))
+        _ml_badge = tk.Label(c_ml.hdr, font=(FONT, 8, "bold"), padx=7, pady=2)
+        _ml_badge.pack(side="right", padx=(4, 0))
+        self._badges["Mercado Libre"] = _ml_badge
+        self._set_badge("Mercado Libre", "Sin CSV", "#F5F5F3", "#888888")
         labeled_file(c_ml.body, "CSV reseñas",   self.ml_resenas,  row=0)
         labeled_file(c_ml.body, "CSV totales",   self.ml_totales,  row=1)
-        labeled_file(c_ml.body, "CSV reclamos",  self.ml_reclamos, row=2)
 
-        # Período y salida
-        c_per = Card(left, "PERÍODO Y SALIDA", DARK)
+        # Período
+        c_per = Card(left, "PERÍODO", DARK)
         c_per.pack(fill="x")
         c_per.body.columnconfigure(0, weight=1)
         c_per.body.columnconfigure(1, weight=1)
@@ -1491,41 +1506,21 @@ class ResenaApp(tk.Tk):
         fh = date_picker_field(c_per.body, "Hasta", self.fecha_hasta)
         fh.grid(row=0, column=1, sticky="ew", padx=(6,0), pady=(0,6))
 
-        labeled_file(c_per.body, "Carpeta de salida",
-                     self.output_dir, row=1, is_dir=True)
-
         # ── Columna derecha ────────────────────────────────────────────────
         right = tk.Frame(cols, bg=BG)
         right.grid(row=0, column=1, sticky="nsew", padx=(6,0))
 
-        # Estado
-        c_estado = Card(right, "ESTADO", "#888888")
-        c_estado.pack(fill="x", pady=(0,8))
-        apps = [("PedidosYa", C_PEYA), ("Rappi", C_RAPPI), ("Mercado Libre", C_ML)]
-        self._badges = {}
-        for i, (app, color) in enumerate(apps):
-            row_f = tk.Frame(c_estado.body, bg=WHITE)
-            row_f.pack(fill="x",
-                       pady=(0,6) if i < len(apps)-1 else 0)
-            dot = tk.Canvas(row_f, width=7, height=7, bg=WHITE,
-                            highlightthickness=0)
-            dot.pack(side="left", padx=(0,6))
-            dot.create_oval(1,1,6,6, fill=color, outline=color)
-            tk.Label(row_f, text=app, bg=WHITE, fg="#444",
-                     font=(FONT, 10)).pack(side="left")
-            badge = tk.Label(row_f, bg="#FAEEDA", fg="#854F0B",
-                             font=(FONT, 8, "bold"), padx=7, pady=2)
-            badge.pack(side="right")
-            self._badges[app] = badge
-
-        self._set_badge("PedidosYa", "Automático",   "#EAF3DE", "#3B6D11")
-        self._set_badge("Rappi",     "Automático",   "#EAF3DE", "#3B6D11")
-        self._set_badge("Mercado Libre", "Sin CSV",     "#F5F5F3", "#888888")
+        # Carpeta de salida
+        c_salida = Card(right, "CARPETA DE SALIDA", DARK)
+        c_salida.pack(fill="x", pady=(0,8))
+        c_salida.body.columnconfigure(0, weight=1)
+        labeled_file(c_salida.body, "Carpeta de salida",
+                     self.output_dir, row=0, is_dir=True)
 
         # Log
         c_log = Card(right, "REGISTRO", "#888888")
-        c_log.pack(fill="both", expand=True, pady=(0,10))
-        self.log = tk.Text(c_log.body, height=9,
+        c_log.pack(fill="both", expand=True, pady=(0,8))
+        self.log = tk.Text(c_log.body, height=12,
                            font=("Consolas", 9),
                            bg=C_LOG_BG, fg="#AAAAAA",
                            relief="flat", bd=0,
@@ -1550,46 +1545,46 @@ class ResenaApp(tk.Tk):
                                    anchor="w")
         self.status_lbl.pack(fill="x", pady=(3,0))
 
-        # Botones
+        # Botones — grilla 2×2
+        btn_frame = tk.Frame(right, bg=BG)
+        btn_frame.pack(fill="x")
+        btn_frame.columnconfigure(0, weight=1)
+        btn_frame.columnconfigure(1, weight=1)
+
         self.btn = tk.Button(
-            right, text="▶  Generar informes",
-            bg=DARK, fg=WHITE, font=(FONT, 12, "bold"),
-            relief="flat", bd=0, pady=10, cursor="hand2",
+            btn_frame, text="▶  Generar informes",
+            bg=DARK, fg=WHITE, font=(FONT, 10, "bold"),
+            relief="flat", bd=0, pady=6, cursor="hand2",
             activebackground="#2d2d4e", activeforeground=WHITE,
             command=self._iniciar)
-        self.btn.pack(fill="x", pady=(0,6))
-        
+        self.btn.grid(row=0, column=0, sticky="ew", padx=(0,3), pady=(0,4))
+
         self.btn_continuar = tk.Button(
-            right, text="✓  Continuar — Verificación completada",
-            bg=C_PEYA, fg=WHITE, font=(FONT, 11, "bold"),
-            relief="flat", bd=0, pady=9, cursor="hand2",
+            btn_frame, text="✓  Verificación OK",
+            bg=C_PEYA, fg=WHITE, font=(FONT, 10, "bold"),
+            relief="flat", bd=0, pady=6, cursor="hand2",
             activebackground="#c0003a", activeforeground=WHITE,
             state="disabled", command=self._continuar_peya)
-        self.btn_continuar.pack(fill="x", pady=(0,6))
+        self.btn_continuar.grid(row=0, column=1, sticky="ew", padx=(3,0), pady=(0,4))
 
         self.btn_cancel = tk.Button(
-            right, text="✕  Cancelar",
-            bg=WHITE, fg="#888888", font=(FONT, 11),
-            relief="flat", bd=0, pady=9, cursor="hand2",
+            btn_frame, text="✕  Cancelar",
+            bg=WHITE, fg="#888888", font=(FONT, 10),
+            relief="flat", bd=0, pady=6, cursor="hand2",
             highlightbackground=BORDER, highlightthickness=1,
             state="disabled", command=self._cancelar)
-        self.btn_cancel.pack(fill="x")
-
-        # Separador y botón secundario para regenerar desde Excel
-        sep = tk.Frame(right, bg=BORDER, height=1)
-        sep.pack(fill="x", pady=(12, 8))
+        self.btn_cancel.grid(row=1, column=0, sticky="ew", padx=(0,3))
 
         self.btn_excel = tk.Button(
-            right, text="📄  Regenerar PDFs desde Excel",
+            btn_frame, text="📄  Regenerar PDFs",
             bg=WHITE, fg="#444444", font=(FONT, 10),
-            relief="flat", bd=0, pady=8, cursor="hand2",
+            relief="flat", bd=0, pady=6, cursor="hand2",
             highlightbackground=BORDER, highlightthickness=1,
             command=self._iniciar_desde_excel)
-        self.btn_excel.pack(fill="x")
+        self.btn_excel.grid(row=1, column=1, sticky="ew", padx=(3,0))
 
         # Actualizar badge ML al escribir la ruta
         self.ml_resenas.trace_add("write",   lambda *_: self._update_ml_badge())
-        self.ml_reclamos.trace_add("write",  lambda *_: self._update_ml_badge())
 
     # ── Helpers UI ────────────────────────────────────────────────────────────
 
