@@ -124,9 +124,9 @@ class Gauge(Flowable):
         # amarillo: 120°→60°   (2.1–3%) → centro: 90°
         # rojo:      60°→0°   (>3%)     → centro: 30°
         pct = self.pct
-        if pct <= 0.5:
+        if pct <= 2.09:
             return 150
-        elif pct <= 2:
+        elif pct <= 3.09:
             return 90
         else:
             return 30
@@ -659,7 +659,7 @@ def build_story(data, styles, tpr):
     # ── SECCIÓN RESEÑAS (después) ─────────────────────────────────────────────
     story.append(Spacer(1, 6 * mm))
     story.append(HRFlowable(width="100%", thickness=0.5, color=C_LGRAY, spaceAfter=0))
-    story.append(Paragraph("RESEÑAS", _sec))
+    story.append(Paragraph("RESEÑAS (1 y 2 ESTRELLAS)", _sec))
     story.append(HRFlowable(width="100%", thickness=0.5, color=C_LGRAY, spaceAfter=2 * mm))
     story.append(GaugeSingle("1 Y 2 ESTRELLAS", neg, tot))
     story.append(Spacer(1, 1 * mm))
@@ -762,7 +762,7 @@ class HeaderFooter:
         tot = self.data.get("total_ordenes", 0)
         canvas.setFont("DJB", 9)
         canvas.setFillColor(C_BLACK)
-        canvas.drawCentredString(w * 0.73, y, f"Pedidos: {tot}")
+        canvas.drawCentredString(w * 0.73, y, f"Cant. Pedidos: {tot}")
         canvas.setFont("DJ", 9)
         canvas.setFillColor(C_GRAY)
         canvas.drawRightString(w - MARGIN, y, f'{doc.page} de {self.tpr[0]}')
