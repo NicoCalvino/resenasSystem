@@ -179,9 +179,9 @@ def _escribir_hoja_reclamos(ws, reclamos: list[Reclamo]):
 # ── Pestaña de totales ────────────────────────────────────────────────────────
 def _escribir_hoja_totales(ws, resumenes: list[ResumenLocal],
                             totales_rappi: dict, totales_peya: dict,
-                            totales_ml: dict):
+                            totales_ml: dict, reclamos: list = None):
     # Encabezado principal
-    ws.merge_cells("A1:H1")
+    ws.merge_cells("A1:I1")
     c = ws["A1"]
     c.value = "Totales de órdenes por grupo y aplicación"
     c.font  = Font(name="Arial", bold=True, size=12, color="FFFFFF")
@@ -191,7 +191,7 @@ def _escribir_hoja_totales(ws, resumenes: list[ResumenLocal],
 
     # Encabezados de columna
     cols = ["Grupo/Local", "Rappi", "PedidosYa", "Mercado Libre",
-            "Total Órdenes", "Reseñas Negativas", "Errores Graves", "% Error"]
+            "Total Órdenes", "Reclamos", "Reseñas Negativas", "Errores Graves", "% Error"]
     font_h, fill_h, align_h = _header_style(COLOR_SUBHEAD_TOT, "FFFFFF", size=10)
     _set_row(ws, 2, cols, font=font_h, fill=fill_h, align=align_h, border=_border)
     ws.row_dimensions[2].height = 18
@@ -208,6 +208,11 @@ def _escribir_hoja_totales(ws, resumenes: list[ResumenLocal],
     # Mapa resumen por grupo
     mapa = {r.local_nombre: r for r in resumenes}
 
+    # Conteo de reclamos por grupo
+    reclamos_por_grupo: dict[str, int] = {}
+    for rec in (reclamos or []):
+        reclamos_por_grupo[rec.local_nombre] = reclamos_por_grupo.get(rec.local_nombre, 0) + 1
+
     font_d  = Font(name="Arial", size=9)
     font_b  = Font(name="Arial", size=9, bold=True)
     align_c = Alignment(horizontal="center", vertical="center")
@@ -222,16 +227,18 @@ def _escribir_hoja_totales(ws, resumenes: list[ResumenLocal],
         r_ml    = totales_ml.get(grupo, 0)
         total   = r_rappi + r_peya + r_ml
 
-        resumen = mapa.get(grupo)
-        neg     = resumen.resenas_negativas if resumen else 0
-        graves  = resumen.errores_graves    if resumen else 0
+        resumen   = mapa.get(grupo)
+        neg       = resumen.resenas_negativas if resumen else 0
+        graves    = resumen.errores_graves    if resumen else 0
+        n_reclamos = reclamos_por_grupo.get(grupo, 0)
 
         # % error con IFERROR para evitar DIV/0
-        col_tot = get_column_letter(5)  # columna E = Total Órdenes
-        col_neg = get_column_letter(6)  # columna F = Reseñas Negativas
-        pct_formula = f"=IFERROR({col_neg}{i}/{col_tot}{i},0)"
+        # Fórmula: Errores Graves / Reclamos
+        col_rec    = get_column_letter(6)  # columna F = Reclamos
+        col_graves = get_column_letter(8)  # columna H = Errores Graves
+        pct_formula = f"=IFERROR({col_graves}{i}/{col_rec}{i},0)"
 
-        row_vals = [grupo, r_rappi, r_peya, r_ml, total, neg, graves, pct_formula]
+        row_vals = [grupo, r_rappi, r_peya, r_ml, total, n_reclamos, neg, graves, pct_formula]
 
         for col, val in enumerate(row_vals, 1):
             cell = ws.cell(row=i, column=col, value=val)
@@ -245,15 +252,15 @@ def _escribir_hoja_totales(ws, resumenes: list[ResumenLocal],
                 cell.font = font_d
                 cell.alignment = align_c
 
-        # Formato de porcentaje en columna H
-        ws.cell(row=i, column=8).number_format = "0.0%"
+        # Formato de porcentaje en columna I
+        ws.cell(row=i, column=9).number_format = "0.0%"
         ws.row_dimensions[i].height = 15
 
     # Fila de totales
     last = len(grupos) + 2
     tot_row = last + 1
     ws.cell(row=tot_row, column=1, value="TOTAL").font = Font(name="Arial", bold=True, size=10)
-    for col in range(2, 8):
+    for col in range(2, 9):
         letter = get_column_letter(col)
         cell = ws.cell(row=tot_row, column=col,
                        value=f"=SUM({letter}3:{letter}{last})")
@@ -261,10 +268,10 @@ def _escribir_hoja_totales(ws, resumenes: list[ResumenLocal],
         cell.fill = PatternFill("solid", start_color="E8E8E8")
         cell.border = _border
         cell.alignment = Alignment(horizontal="center")
-    ws.cell(row=tot_row, column=8).number_format = "0.0%"
+    ws.cell(row=tot_row, column=9).number_format = "0.0%"
 
     # Anchos
-    for col, w in zip(range(1, 9), [22, 12, 12, 14, 14, 16, 14, 10]):
+    for col, w in zip(range(1, 10), [22, 12, 12, 14, 14, 12, 16, 14, 10]):
         ws.column_dimensions[get_column_letter(col)].width = w
 
 
@@ -297,7 +304,7 @@ def generar_excel(
 
     # Pestaña de totales
     ws_tot = wb.create_sheet(title="Totales")
-    _escribir_hoja_totales(ws_tot, resumenes, totales_rappi, totales_peya, totales_ml)
+    _escribir_hoja_totales(ws_tot, resumenes, totales_rappi, totales_peya, totales_ml, reclamos)
 
     wb.save(ruta_salida)
     return ruta_salida

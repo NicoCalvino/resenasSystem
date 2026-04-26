@@ -125,7 +125,7 @@ def descargar_reclamos_peya_webhook(url: str, carpeta: str = "./pedidosya") -> s
     fecha_str    = datetime.now().strftime("%Y%m%d")
     ruta_destino = str(carpeta_path / f"reclamos_peya_{fecha_str}.csv")
 
-    logger.info("PedidosYa reclamos: descargando desde webhook n8n...")
+    logger.info("PedidosYa reclamos: descargando desde webhook Apps Script...")
 
     try:
         with urllib.request.urlopen(url, timeout=90) as response:

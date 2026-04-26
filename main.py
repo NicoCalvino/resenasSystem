@@ -111,7 +111,7 @@ async def main():
         if not ruta_peya_reclamos:
             webhook_peya = os.environ.get("PEYA_RECLAMOS_WEBHOOK", "").strip().strip('"').strip("'")
             if webhook_peya:
-                logger.info("── Descargando reclamos PedidosYa desde webhook n8n...")
+                logger.info("── Descargando reclamos PedidosYa desde webhook Apps Script...")
                 try:
                     ruta_peya_reclamos = descargar_reclamos_peya_webhook(webhook_peya)
                 except Exception as e:
@@ -176,7 +176,7 @@ async def main():
         if not ruta_ml_reclamos:
             webhook_url = os.environ.get("ML_RECLAMOS_WEBHOOK", "").strip().strip('"').strip("'")
             if webhook_url:
-                logger.info("── Descargando reclamos ML desde webhook n8n...")
+                logger.info("── Descargando reclamos ML desde webhook Apps Script...")
                 try:
                     ruta_ml_reclamos = descargar_reclamos_desde_webhook(webhook_url)
                 except Exception as e:

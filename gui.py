@@ -584,9 +584,9 @@ class EditDialog(tk.Toplevel):
 
 class LocalesWindow(tk.Toplevel):
     """
-    Ventana independiente para ver, editar, crear y eliminar locales.
-    Los datos se leen y escriben en un archivo JSON cuya ruta es configurable,
-    permitiendo que varios usuarios compartan la misma fuente de datos.
+    Ventana de consulta de locales (solo lectura).
+    Los datos se obtienen desde Google Sheets via sheets_sync (caché → hardcoded).
+    Para modificar los locales, editar directamente el Google Sheet configurado.
     """
 
     COLS = [
@@ -598,75 +598,54 @@ class LocalesWindow(tk.Toplevel):
         ("mp_nombre", "Nombre MP",      220),
     ]
 
-    _LOCAL_JSON  = Path(__file__).parent / "config" / "tiendas.json"
+    _CACHE_FILE  = Path(__file__).parent / "config" / "cache_sheets.json"
     _CONFIG_FILE = Path(__file__).parent / "config_gui.json"
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.title("Gestión de Locales")
-        self.geometry("1060x660")
+        self.title("Locales")
+        self.geometry("1060x620")
         self.minsize(800, 440)
         self.configure(bg=BG)
         self.transient(parent)
 
-        self._modified = False
         self._load_data()
         self._build_ui()
-
-    # ── Ruta de datos ─────────────────────────────────────────────────────────
-
-    def _shared_path_cfg(self) -> str:
-        """Devuelve la ruta compartida configurada (o '' si no hay)."""
-        if self._CONFIG_FILE.exists():
-            try:
-                cfg = json.loads(self._CONFIG_FILE.read_text(encoding="utf-8"))
-                return cfg.get("tiendas_path", "").strip()
-            except Exception:
-                pass
-        return ""
-
-    def _save_shared_path_cfg(self, path: str):
-        """Persiste la ruta compartida en config_gui.json."""
-        cfg = {}
-        if self._CONFIG_FILE.exists():
-            try:
-                cfg = json.loads(self._CONFIG_FILE.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-        cfg["tiendas_path"] = path
-        self._CONFIG_FILE.write_text(json.dumps(cfg), encoding="utf-8")
-
-    def _ruta_efectiva(self) -> tuple[Path | None, str]:
-        """
-        Retorna (path, fuente) donde fuente es:
-          'compartida' | 'local' | 'hardcoded'
-        """
-        shared = self._shared_path_cfg()
-        if shared:
-            p = Path(shared)
-            if p.exists():
-                return p, "compartida"
-        if self._LOCAL_JSON.exists():
-            return self._LOCAL_JSON, "local"
-        return None, "hardcoded"
 
     # ── Datos ─────────────────────────────────────────────────────────────────
 
     def _load_data(self):
-        import copy
-        path, fuente = self._ruta_efectiva()
-        if path is not None:
+        sys.path.insert(0, str(Path(__file__).parent))
+        from config.locales import TIENDAS
+        self._tiendas = list(TIENDAS)
+
+    def _sheets_status(self) -> tuple[str, str, str]:
+        """Devuelve (icono, color, texto) para el label de fuente."""
+        # ¿Hay sheets_id configurado?
+        sheets_id = ""
+        if self._CONFIG_FILE.exists():
             try:
-                self._tiendas = json.loads(path.read_text(encoding="utf-8"))
-                self._fuente  = fuente
-                return
+                cfg = json.loads(self._CONFIG_FILE.read_text(encoding="utf-8"))
+                sheets_id = cfg.get("sheets_id", "").strip()
             except Exception:
                 pass
-        # Fallback: datos del módulo
-        sys.path.insert(0, str(Path(__file__).parent))
-        from config.locales import _TIENDAS_HARDCODED
-        self._tiendas = copy.deepcopy(list(_TIENDAS_HARDCODED))
-        self._fuente  = "hardcoded"
+
+        if not sheets_id:
+            return ("⚠", "#993300",
+                    "Google Sheets no configurado — usando datos hardcodeados. "
+                    "Agregá SHEETS_ID=<id> en el archivo .env para activarlo.")
+
+        if self._CACHE_FILE.exists():
+            try:
+                cache = json.loads(self._CACHE_FILE.read_text(encoding="utf-8"))
+                ts = cache.get("ultima_actualizacion", "fecha desconocida")
+                return ("🌐", "#1a6b2a",
+                        f"Datos desde Google Sheets  ·  última actualización: {ts}")
+            except Exception:
+                pass
+
+        return ("⚠", "#7A5500",
+                "Google Sheets configurado — sin caché aún (se actualizará al próximo proceso)")
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -682,28 +661,18 @@ class LocalesWindow(tk.Toplevel):
         tk.Label(logo, text="GL", bg=DARK, fg=WHITE,
                  font=(FONT, 9, "bold")).pack(expand=True)
 
-        tk.Label(hdr, text="Gestión de Locales", bg=WHITE, fg=DARK,
+        tk.Label(hdr, text="Locales", bg=WHITE, fg=DARK,
                  font=(FONT, 12, "bold")).pack(side="left")
 
-        tk.Label(hdr, text="· Doble clic para editar",
+        tk.Label(hdr, text="· solo lectura  ·  para editar, modificar el Google Sheet",
                  bg=WHITE, fg=MUTED, font=(FONT, 9)).pack(side="left", padx=8)
-
-        # Botón configurar ruta (lado derecho del header)
-        tk.Button(
-            hdr, text="📁  Ruta compartida",
-            font=(FONT, 9), bg=BG, fg="#555",
-            relief="flat", highlightbackground=BORDER, highlightthickness=1,
-            padx=12, pady=5, cursor="hand2",
-            command=self._configurar_ruta,
-        ).pack(side="right", padx=14, pady=10)
 
         # ── Barra de estado de fuente ──────────────────────────────────────────
         self._fuente_frame = tk.Frame(self, bg=BG)
         self._fuente_frame.pack(fill="x", padx=14, pady=(6, 0))
-        self._lbl_fuente = tk.Label(self._fuente_frame, bg=BG,
-                                    font=(FONT, 8), anchor="w")
-        self._lbl_fuente.pack(side="left")
-        self._update_fuente_label()
+        ico, color, txt = self._sheets_status()
+        tk.Label(self._fuente_frame, text=f"{ico}  {txt}",
+                 bg=BG, fg=color, font=(FONT, 8), anchor="w").pack(side="left")
 
         # ── Barra de búsqueda ─────────────────────────────────────────────────
         bar = tk.Frame(self, bg=BG)
@@ -723,7 +692,7 @@ class LocalesWindow(tk.Toplevel):
 
         # ── Tabla ─────────────────────────────────────────────────────────────
         tree_f = tk.Frame(self, bg=BG)
-        tree_f.pack(fill="both", expand=True, padx=14, pady=(0, 8))
+        tree_f.pack(fill="both", expand=True, padx=14, pady=(0, 14))
 
         style = ttk.Style()
         style.configure("Loc.Treeview",         font=(FONT, 9),  rowheight=26)
@@ -753,49 +722,7 @@ class LocalesWindow(tk.Toplevel):
         tree_f.rowconfigure(0, weight=1)
         tree_f.columnconfigure(0, weight=1)
 
-        self.tree.bind("<Double-1>", lambda _: self._editar())
-
-        # ── Botones inferiores ────────────────────────────────────────────────
-        btn_f = tk.Frame(self, bg=BG)
-        btn_f.pack(fill="x", padx=14, pady=(0, 14))
-
-        def _btn(parent, text, cmd, bg, fg, bold=False, border=False):
-            kw = dict(font=(FONT, 10, "bold") if bold else (FONT, 10),
-                      bg=bg, fg=fg, relief="flat",
-                      padx=14, pady=7, cursor="hand2", command=cmd)
-            if border:
-                kw.update(highlightbackground=BORDER, highlightthickness=1)
-            else:
-                kw.update(bd=0,
-                          activebackground="#2d2d4e" if bg == DARK else "#1e5e2a",
-                          activeforeground=WHITE)
-            return tk.Button(parent, text=text, **kw)
-
-        _btn(btn_f, "＋  Nuevo",    self._nuevo,    DARK,  WHITE,         ).pack(side="left", padx=(0, 6))
-        _btn(btn_f, "✎  Editar",   self._editar,   WHITE, DARK,  border=True).pack(side="left", padx=(0, 6))
-        _btn(btn_f, "✕  Eliminar", self._eliminar, WHITE, "#CC3333", border=True).pack(side="left")
-
-        tk.Button(
-            btn_f, text="💾  Guardar cambios",
-            font=(FONT, 10, "bold"),
-            bg="#2A7D3A", fg=WHITE, relief="flat", bd=0,
-            padx=16, pady=7, cursor="hand2",
-            activebackground="#1e5e2a", activeforeground=WHITE,
-            command=self._guardar,
-        ).pack(side="right")
-
         self._populate()
-
-    def _update_fuente_label(self):
-        """Actualiza el label que muestra la fuente de datos activa."""
-        path, fuente = self._ruta_efectiva()
-        if fuente == "compartida":
-            ico, color, txt = "🌐", "#1a6b2a", f"Datos compartidos: {path}"
-        elif fuente == "local":
-            ico, color, txt = "💾", "#6b5a00", f"Datos locales: {path}"
-        else:
-            ico, color, txt = "⚠", "#993300", "Usando datos hardcodeados (fallback)"
-        self._lbl_fuente.config(text=f"{ico}  {txt}", fg=color)
 
     # ── Tabla ─────────────────────────────────────────────────────────────────
 
@@ -832,249 +759,27 @@ class LocalesWindow(tk.Toplevel):
         for idx, (_, k) in enumerate(data):
             self.tree.move(k, "", idx)
 
-    # ── Selección ─────────────────────────────────────────────────────────────
-
-    def _selected_idx(self):
-        sel = self.tree.selection()
-        return int(sel[0]) if sel else None
-
-    # ── CRUD ──────────────────────────────────────────────────────────────────
-
-    def _nuevo(self):
-        def _on_save(data):
-            self._tiendas.append(data)
-            self._modified = True
-            self._populate(self._search_var.get())
-            self.tree.selection_set(str(len(self._tiendas) - 1))
-        EditDialog(self, None, _on_save)
-
-    def _editar(self):
-        idx = self._selected_idx()
-        if idx is None:
-            messagebox.showwarning("Sin selección",
-                                   "Seleccioná un local para editar.", parent=self)
-            return
-
-        def _on_save(data, _idx=idx):
-            self._tiendas[_idx] = data
-            self._modified = True
-            self._populate(self._search_var.get())
-            self.tree.selection_set(str(_idx))
-
-        EditDialog(self, self._tiendas[idx], _on_save)
-
-    def _eliminar(self):
-        idx = self._selected_idx()
-        if idx is None:
-            messagebox.showwarning("Sin selección",
-                                   "Seleccioná un local para eliminar.", parent=self)
-            return
-        nombre = self._tiendas[idx].get("nombre", "?")
-        if messagebox.askyesno("Confirmar eliminación",
-                               f"¿Eliminar '{nombre}'?\nEsta acción no se puede deshacer.",
-                               parent=self):
-            del self._tiendas[idx]
-            self._modified = True
-            self._populate(self._search_var.get())
-
-    # ── Guardar ───────────────────────────────────────────────────────────────
-
-    def _guardar(self):
-        """Guarda los datos en el archivo JSON activo (compartido o local)."""
-        path, fuente = self._ruta_efectiva()
-
-        if path is None:
-            # No hay JSON: preguntar al usuario dónde crear uno
-            p = filedialog.asksaveasfilename(
-                title="Guardar tiendas.json",
-                defaultextension=".json",
-                filetypes=[("JSON", "*.json")],
-                initialfile="tiendas.json",
-                parent=self,
-            )
-            if not p:
-                return
-            path = Path(p)
-            # Si se eligió, guardar como local
-            if path != self._LOCAL_JSON:
-                self._save_shared_path_cfg(str(path))
-            self._update_fuente_label()
-
-        try:
-            path.write_text(
-                json.dumps(self._tiendas, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-        except Exception as e:
-            messagebox.showerror("Error al guardar",
-                                 f"No se pudo escribir el archivo:\n{e}", parent=self)
-            return
-
-        self._modified = False
-        destino = "ruta compartida" if fuente == "compartida" else str(path)
-        messagebox.showinfo(
-            "Guardado",
-            f"Cambios guardados en:\n{path}\n\n"
-            "Los cambios están disponibles para todos los usuarios que usen la misma ruta.\n"
-            "Reiniciá la aplicación para que los cambios surtan efecto en el proceso.",
-            parent=self,
-        )
-
-    # ── Configurar ruta compartida ─────────────────────────────────────────────
-
-    def _configurar_ruta(self):
-        """Abre el diálogo de configuración de ruta compartida."""
-        RutaDialog(self, self._shared_path_cfg(), self._on_ruta_guardada)
-
-    def _on_ruta_guardada(self, nueva_ruta: str):
-        """Callback tras confirmar una nueva ruta compartida."""
-        self._save_shared_path_cfg(nueva_ruta)
-        self._update_fuente_label()
-        # Recargar datos desde la nueva ruta
-        self._load_data()
-        self._populate(self._search_var.get())
-        self._modified = False
-
-
-# ── Diálogo de configuración de ruta compartida ───────────────────────────────
-
-class RutaDialog(tk.Toplevel):
-    """Permite al usuario configurar (o limpiar) la ruta del JSON compartido."""
-
-    def __init__(self, parent, ruta_actual: str, on_save):
-        super().__init__(parent)
-        self.on_save = on_save
-        self.transient(parent)
-        self.grab_set()
-        self.resizable(False, False)
-        self.configure(bg=WHITE)
-        self.title("Ruta compartida de locales")
-
-        self._var = tk.StringVar(value=ruta_actual)
-        self._build()
-
-        self.update_idletasks()
-        pw = parent.winfo_rootx() + parent.winfo_width()  // 2
-        ph = parent.winfo_rooty() + parent.winfo_height() // 2
-        w  = self.winfo_reqwidth()
-        h  = self.winfo_reqheight()
-        self.geometry(f"+{max(0, pw - w//2)}+{max(0, ph - h//2)}")
-
-    def _build(self):
-        f = tk.Frame(self, bg=WHITE, padx=24, pady=20)
-        f.pack()
-
-        # Explicación
-        info_f = tk.Frame(f, bg="#EEF4FB",
-                          highlightbackground="#B8D4F0", highlightthickness=1)
-        info_f.pack(fill="x", pady=(0, 14))
-        tk.Label(
-            info_f,
-            text=(
-                "ℹ  Para compartir la lista de locales entre varios usuarios,\n"
-                "   apuntá aquí a un archivo tiendas.json en una carpeta de red,\n"
-                "   OneDrive, Google Drive o cualquier ubicación accesible por todos."
-            ),
-            bg="#EEF4FB", fg="#1a3a5e", font=(FONT, 9),
-            justify="left",
-        ).pack(padx=12, pady=10)
-
-        tk.Label(f, text="RUTA DEL ARCHIVO JSON COMPARTIDO", bg=WHITE, fg=MUTED,
-                 font=(FONT, 8, "bold")).pack(anchor="w")
-
-        row = tk.Frame(f, bg=WHITE)
-        row.pack(fill="x", pady=(2, 0))
-        row.columnconfigure(0, weight=1)
-
-        tk.Entry(row, textvariable=self._var, font=(FONT, 10),
-                 bg=FIELD_BG, fg="#222", relief="flat",
-                 highlightbackground=BORDER, highlightthickness=1,
-                 width=46).grid(row=0, column=0, sticky="ew", ipady=5)
-
-        tk.Button(row, text="Elegir…", font=(FONT, 9),
-                  bg=BG, fg="#444", relief="flat",
-                  highlightbackground=BORDER, highlightthickness=1,
-                  padx=10, cursor="hand2",
-                  command=self._elegir).grid(row=0, column=1, padx=(6, 0), ipady=4)
-
-        tk.Label(f, text="Dejá el campo vacío para usar el archivo local (config/tiendas.json).",
-                 bg=WHITE, fg=MUTED, font=(FONT, 8)).pack(anchor="w", pady=(4, 16))
-
-        # Botones
-        btn_f = tk.Frame(f, bg=WHITE)
-        btn_f.pack(fill="x")
-        btn_f.columnconfigure(0, weight=1)
-        btn_f.columnconfigure(1, weight=1)
-
-        tk.Button(btn_f, text="Cancelar", font=(FONT, 10),
-                  bg=WHITE, fg="#555", relief="flat",
-                  highlightbackground=BORDER, highlightthickness=1,
-                  padx=16, pady=7, cursor="hand2",
-                  command=self.destroy).grid(row=0, column=0, padx=(0, 8), sticky="ew")
-
-        tk.Button(btn_f, text="Guardar", font=(FONT, 10, "bold"),
-                  bg=DARK, fg=WHITE, relief="flat", bd=0,
-                  padx=16, pady=7, cursor="hand2",
-                  activebackground="#2d2d4e", activeforeground=WHITE,
-                  command=self._save).grid(row=0, column=1, sticky="ew")
-
-    def _elegir(self):
-        p = filedialog.askopenfilename(
-            title="Seleccioná el archivo tiendas.json compartido",
-            filetypes=[("JSON", "*.json"), ("Todos", "*")],
-            parent=self,
-        )
-        if p:
-            self._var.set(p)
-
-    def _save(self):
-        ruta = self._var.get().strip()
-        if ruta and not Path(ruta).exists():
-            if not messagebox.askyesno(
-                "Archivo no encontrado",
-                f"El archivo no existe:\n{ruta}\n\n"
-                "¿Querés guardarlo igual? (Se creará al guardar los cambios.)",
-                parent=self,
-            ):
-                return
-        self.on_save(ruta)
-        self.destroy()
 
 
 class KeywordsGravesWindow(tk.Toplevel):
     """
-    Ventana para ver y editar las palabras clave que determinan errores graves.
-    Los datos se leen y escriben en config/keywords_graves.json.
-    Si el archivo no existe, usa la lista hardcodeada de locales.py como punto de partida.
+    Ventana de consulta de palabras clave de errores graves (solo lectura).
+    Los datos se obtienen desde Google Sheets via sheets_sync (caché → hardcoded).
+    Para modificar las palabras clave, editar directamente el Google Sheet configurado.
     """
-
-    _KEYWORDS_FILE = Path(__file__).parent / "config" / "keywords_graves.json"
 
     def __init__(self, parent):
         super().__init__(parent)
         self.title("Palabras de Errores Graves")
-        self.geometry("460x580")
-        self.minsize(360, 420)
+        self.geometry("460x500")
+        self.minsize(360, 360)
         self.configure(bg=BG)
         self.transient(parent)
 
-        self._keywords = self._load_keywords()
-        self._build_ui()
-
-    # ── Carga / guardado ──────────────────────────────────────────────────────
-
-    def _load_keywords(self):
-        if self._KEYWORDS_FILE.exists():
-            try:
-                data = json.loads(self._KEYWORDS_FILE.read_text(encoding="utf-8"))
-                if isinstance(data, list):
-                    return sorted(set(str(k).strip().lower() for k in data if str(k).strip()))
-            except Exception:
-                pass
-        # Fallback: usar la lista hardcodeada del módulo
         sys.path.insert(0, str(Path(__file__).parent))
         from config.locales import KEYWORDS_GRAVES
-        return sorted(set(KEYWORDS_GRAVES))
+        self._keywords = sorted(set(KEYWORDS_GRAVES))
+        self._build_ui()
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -1093,6 +798,9 @@ class KeywordsGravesWindow(tk.Toplevel):
         tk.Label(hdr, text="Palabras de Errores Graves", bg=WHITE, fg=DARK,
                  font=(FONT, 12, "bold")).pack(side="left")
 
+        tk.Label(hdr, text="· solo lectura",
+                 bg=WHITE, fg=MUTED, font=(FONT, 9)).pack(side="left", padx=8)
+
         # Info
         info_f = tk.Frame(self, bg="#FFF3E0",
                           highlightbackground="#FFCC80", highlightthickness=1)
@@ -1101,7 +809,8 @@ class KeywordsGravesWindow(tk.Toplevel):
             info_f,
             text=(
                 "⚠  Las reseñas que contengan estas palabras (o prefijos) se marcarán\n"
-                "   como errores graves y se resaltarán en los informes PDF."
+                "   como errores graves y se resaltarán en los informes PDF.\n"
+                "   Para modificar la lista, editá la hoja Keywords en el Google Sheet."
             ),
             bg="#FFF3E0", fg="#7A4000", font=(FONT, 9),
             justify="left",
@@ -1113,7 +822,7 @@ class KeywordsGravesWindow(tk.Toplevel):
 
         # Listbox
         list_f = tk.Frame(self, bg=BG)
-        list_f.pack(fill="both", expand=True, padx=14, pady=(0, 8))
+        list_f.pack(fill="both", expand=True, padx=14, pady=(0, 14))
 
         self._listbox = tk.Listbox(
             list_f,
@@ -1135,54 +844,6 @@ class KeywordsGravesWindow(tk.Toplevel):
 
         self._populate()
 
-        # Fila para agregar nueva palabra
-        add_f = tk.Frame(self, bg=BG)
-        add_f.pack(fill="x", padx=14, pady=(0, 8))
-        add_f.columnconfigure(0, weight=1)
-
-        tk.Label(add_f, text="NUEVA PALABRA O PREFIJO", bg=BG, fg=MUTED,
-                 font=(FONT, 8, "bold")).grid(
-                 row=0, column=0, columnspan=2, sticky="w", pady=(0, 3))
-
-        self._new_word_var = tk.StringVar()
-        entry = tk.Entry(add_f, textvariable=self._new_word_var,
-                         font=(FONT, 11), bg=FIELD_BG, fg="#222222",
-                         relief="flat",
-                         highlightbackground=BORDER, highlightthickness=1)
-        entry.grid(row=1, column=0, sticky="ew", ipady=5, padx=(0, 6))
-        entry.bind("<Return>", lambda _: self._agregar())
-
-        tk.Button(
-            add_f, text="＋ Agregar",
-            font=(FONT, 10, "bold"),
-            bg=DARK, fg=WHITE, relief="flat", bd=0,
-            padx=14, pady=6, cursor="hand2",
-            activebackground="#2d2d4e", activeforeground=WHITE,
-            command=self._agregar,
-        ).grid(row=1, column=1)
-
-        # Botones inferiores
-        btn_f = tk.Frame(self, bg=BG)
-        btn_f.pack(fill="x", padx=14, pady=(0, 14))
-
-        tk.Button(
-            btn_f, text="✕  Eliminar seleccionada",
-            font=(FONT, 10),
-            bg=WHITE, fg="#CC3333", relief="flat",
-            highlightbackground=BORDER, highlightthickness=1,
-            padx=14, pady=7, cursor="hand2",
-            command=self._eliminar,
-        ).pack(side="left", padx=(0, 8))
-
-        tk.Button(
-            btn_f, text="💾  Guardar cambios",
-            font=(FONT, 10, "bold"),
-            bg="#2A7D3A", fg=WHITE, relief="flat", bd=0,
-            padx=16, pady=7, cursor="hand2",
-            activebackground="#1e5e2a", activeforeground=WHITE,
-            command=self._guardar,
-        ).pack(side="right")
-
     # ── Tabla ─────────────────────────────────────────────────────────────────
 
     def _populate(self):
@@ -1191,55 +852,6 @@ class KeywordsGravesWindow(tk.Toplevel):
             self._listbox.insert("end", f"  {kw}")
         n = len(self._keywords)
         self._lbl_count.config(text=f"{n} palabra{'s' if n != 1 else ''}")
-
-    # ── CRUD ──────────────────────────────────────────────────────────────────
-
-    def _agregar(self):
-        word = self._new_word_var.get().strip().lower()
-        if not word:
-            return
-        if word in self._keywords:
-            messagebox.showinfo("Ya existe",
-                                f"La palabra '{word}' ya está en la lista.", parent=self)
-            return
-        self._keywords.append(word)
-        self._keywords.sort()
-        self._populate()
-        self._new_word_var.set("")
-        # Seleccionar la palabra recién agregada
-        idx = self._keywords.index(word)
-        self._listbox.selection_set(idx)
-        self._listbox.see(idx)
-
-    def _eliminar(self):
-        sel = self._listbox.curselection()
-        if not sel:
-            messagebox.showwarning("Sin selección",
-                                   "Seleccioná una palabra para eliminar.", parent=self)
-            return
-        word = self._listbox.get(sel[0]).strip()
-        if messagebox.askyesno("Confirmar eliminación",
-                               f"¿Eliminar '{word}' de la lista?", parent=self):
-            self._keywords.remove(word)
-            self._populate()
-
-    # ── Guardar ───────────────────────────────────────────────────────────────
-
-    def _guardar(self):
-        try:
-            self._KEYWORDS_FILE.write_text(
-                json.dumps(sorted(self._keywords), ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-            messagebox.showinfo(
-                "Guardado",
-                "Lista de palabras guardada correctamente.\n"
-                "Los cambios se aplicarán al próximo proceso generado.",
-                parent=self,
-            )
-        except Exception as e:
-            messagebox.showerror("Error al guardar",
-                                 f"No se pudo guardar el archivo:\n{e}", parent=self)
 
 
 class ResenaApp(tk.Tk):
@@ -1300,7 +912,15 @@ class ResenaApp(tk.Tk):
                 pass
 
     def _guardar_config(self):
-        cfg = {
+        # Leer config existente para no perder claves desconocidas (ej: sheets_id)
+        cfg = {}
+        if CONFIG_FILE.exists():
+            try:
+                cfg = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+
+        cfg.update({
             "rappi_email":   self.rappi_email.get(),
             "output_dir":    self.output_dir.get(),
             "recordar_pass": self.recordar_pass.get(),
@@ -1308,12 +928,12 @@ class ResenaApp(tk.Tk):
             "recordar_peya": self.recordar_peya.get(),
             "fecha_desde":   self.fecha_desde.get(),
             "fecha_hasta":   self.fecha_hasta.get(),
-        }
+        })
         if self.recordar_pass.get():
             cfg["rappi_password"] = self.rappi_password.get()
         if self.recordar_peya.get():
             cfg["peya_password"] = self.peya_password.get()
-        CONFIG_FILE.write_text(json.dumps(cfg))
+        CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False))
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -1954,7 +1574,7 @@ class ResenaApp(tk.Tk):
         finally:
             self.running = False
             self.after(0, lambda: self.btn.config(state="normal",
-                                                  text="▶  Generar informes"))
+                                              text="▶  Generar informes"))
             self.after(0, lambda: self.btn_cancel.config(state="disabled"))
             self.after(0, lambda: self.btn_continuar.config(state="disabled"))
 

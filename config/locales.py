@@ -11,45 +11,21 @@ Estructura:
   - marca:     Marca de la cadena
 
 Fuente de datos (orden de prioridad):
-  1. Ruta compartida configurada en config_gui.json  →  "tiendas_path"
-  2. config/tiendas.json  (copia local)
-  3. Lista _TIENDAS_HARDCODED al final de este archivo  (fallback de emergencia)
+  1. Google Sheets  (pestaña "Tiendas" / "Keywords")  →  actualiza caché si funciona
+  2. config/cache_sheets.json  (última descarga exitosa de Sheets)
+  3. Lista _TIENDAS_HARDCODED / _KEYWORDS_GRAVES_HARDCODED  (emergencia)
+
+Para activar Sheets: agregar "sheets_id": "<ID del sheet>" en config_gui.json.
+Ver config/sheets_sync.py para instrucciones detalladas.
 """
 import json as _json
 from pathlib import Path as _Path
 
+from config.sheets_sync import cargar_tiendas as _cargar_tiendas
+from config.sheets_sync import cargar_keywords as _cargar_keywords
+
 _LOCALES_DIR = _Path(__file__).parent
 _APP_ROOT    = _LOCALES_DIR.parent
-
-
-def _leer_tiendas() -> list:
-    """
-    Carga la lista de tiendas desde JSON (compartido o local).
-    Si no hay JSON disponible, devuelve el fallback hardcodeado.
-    """
-    # ── 1. Ruta compartida configurada en config_gui.json ─────────────────────
-    cfg_path = _APP_ROOT / "config_gui.json"
-    if cfg_path.exists():
-        try:
-            cfg = _json.loads(cfg_path.read_text(encoding="utf-8"))
-            shared = cfg.get("tiendas_path", "").strip()
-            if shared:
-                p = _Path(shared)
-                if p.exists():
-                    return _json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-
-    # ── 2. tiendas.json local (config/tiendas.json) ───────────────────────────
-    local_json = _LOCALES_DIR / "tiendas.json"
-    if local_json.exists():
-        try:
-            return _json.loads(local_json.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-
-    # ── 3. Fallback hardcodeado ───────────────────────────────────────────────
-    return list(_TIENDAS_HARDCODED)
 
 
 # ── Lista hardcodeada (fallback de emergencia) ────────────────────────────────
@@ -130,8 +106,8 @@ _TIENDAS_HARDCODED = [
     {"nombre": "Green Eat Turbo Dot",         "marca": "Green Eat", "grupo": "DOT",         "py_id": None, "rappi_id": 228142, "mp_nombre": None},
 ]
 
-# ── Cargar tiendas (JSON compartido > JSON local > hardcoded) ─────────────────
-TIENDAS = _leer_tiendas()
+# ── Cargar tiendas (Sheets > caché > hardcoded) ───────────────────────────────
+TIENDAS = _cargar_tiendas(_TIENDAS_HARDCODED)
 
 # ── Índices de acceso rápido ──────────────────────────────────────────────────
 
@@ -170,20 +146,4 @@ _KEYWORDS_GRAVES_HARDCODED = [
 ]
 
 
-def _leer_keywords_graves() -> list:
-    """
-    Carga la lista de keywords graves desde config/keywords_graves.json.
-    Si el archivo no existe o está corrupto, devuelve la lista hardcodeada.
-    """
-    keywords_path = _LOCALES_DIR / "keywords_graves.json"
-    if keywords_path.exists():
-        try:
-            data = _json.loads(keywords_path.read_text(encoding="utf-8"))
-            if isinstance(data, list) and data:
-                return sorted(set(str(k).strip().lower() for k in data if str(k).strip()))
-        except Exception:
-            pass
-    return list(_KEYWORDS_GRAVES_HARDCODED)
-
-
-KEYWORDS_GRAVES = _leer_keywords_graves()
+KEYWORDS_GRAVES = _cargar_keywords(_KEYWORDS_GRAVES_HARDCODED)
