@@ -60,12 +60,29 @@ async def obtener_token(email: str, password: str, headless=True) -> str:
             await page.wait_for_function(
                 "window.localStorage.getItem('access_token') !== null", timeout=30_000)
         except PWTimeout:
-            logger.warning("Rappi: token no apareció en 30s — esperando 60s (¿CAPTCHA?)")
-            await page.wait_for_timeout(60_000)
+            if headless:
+                # Captcha detectado en modo silencioso: reabrir el browser en modo visible
+                # para que el usuario pueda completarlo manualmente.
+                logger.warning("Rappi: captcha detectado — reabriendo navegador en modo visible")
+                await browser.close()
+                return await obtener_token(email, password, headless=False)
+            else:
+                # Ya estamos en modo visible; esperar hasta 5 minutos a que el usuario
+                # resuelva el captcha y el token aparezca en localStorage.
+                logger.warning("Rappi: complete el captcha en el navegador que se abrió (hasta 5 minutos)...")
+                try:
+                    await page.wait_for_function(
+                        "window.localStorage.getItem('access_token') !== null",
+                        timeout=300_000)
+                except PWTimeout:
+                    await page.screenshot(path="/tmp/rappi_login_error.png")
+                    await browser.close()
+                    raise RuntimeError("Rappi: no se obtuvo access_token tras esperar el captcha")
 
         token = await page.evaluate("window.localStorage.getItem('access_token')")
         if not token:
             await page.screenshot(path="/tmp/rappi_login_error.png")
+            await browser.close()
             raise RuntimeError("Rappi: no se obtuvo access_token")
 
         await browser.close()
@@ -83,12 +100,15 @@ def api_resenas(token, store_ids, desde, hasta) -> list[dict]:
     all_reviews = []
     page        = 1
     per_page    = 20
+    # La API usa end_date como exclusivo (00:00:00 del día = inicio del día).
+    # Se suma 1 día a hasta para que el rango sea inclusivo en ambos extremos.
+    end_dt = hasta + timedelta(days=1)
 
     while True:
         body = {
             "store_ids":  store_ids,
             "start_date": _dh(desde),
-            "end_date":   _dh(hasta),
+            "end_date":   _dh(end_dt),
             "scores":     [1, 2],
             "per_page":   per_page,
             "page":       page,
@@ -414,10 +434,11 @@ def convertir_reclamos(raw_ordenes: list[dict],
 # ── FLUJO COMPLETO ────────────────────────────────────────────────────────────
 async def extraer_rappi(email, password, fecha_desde, fecha_hasta=None, headless=True):
     """
-    Retorna (resenas, reclamos, totales_por_grupo).
-    - resenas:  reseñas negativas (1-2 estrellas) con .plato enriquecido
-    - reclamos: órdenes compensadas con platos pedidos y reclamados
-    - totales_por_grupo: dict grupo → cantidad de órdenes totales (denominador del índice)
+    Retorna (resenas, reclamos, totales_por_grupo, totales_marca_por_grupo).
+    - resenas:             reseñas negativas (1-2 estrellas) con .plato enriquecido
+    - reclamos:            órdenes compensadas con platos pedidos y reclamados
+    - totales_por_grupo:   dict { grupo → total_ordenes }
+    - totales_marca_por_grupo: dict { grupo → { marca → total_ordenes } }
     """
     if not fecha_hasta:
         fecha_hasta = datetime.now()
@@ -469,7 +490,11 @@ async def extraer_rappi(email, password, fecha_desde, fecha_hasta=None, headless
     grupos_con_actividad = list({r.local_id for r in resenas} | {rc.local_id for rc in reclamos})
     totales_grupo = calcular_totales_por_grupo(token, grupos_con_actividad, fecha_desde, fecha_hasta)
 
-    return resenas, reclamos, totales_grupo
+    # 8. Totales por marca dentro de cada grupo (para el desglose en el PDF)
+    totales_marca_por_grupo = calcular_totales_por_marca_en_grupos(
+        token, grupos_con_actividad, fecha_desde, fecha_hasta)
+
+    return resenas, reclamos, totales_grupo, totales_marca_por_grupo
 
 
 SALES_URL = ("https://services.rappi.com/rests-partners-gateway/cauth/"
@@ -537,6 +562,72 @@ def calcular_totales_por_grupo(token, grupos: list[str], desde, hasta) -> dict[s
         totales[grupo] = calcular_total_ordenes_grupo(token, grupo, desde, hasta)
         time.sleep(0.3)   # pequeña pausa entre llamadas
     return totales
+
+
+def calcular_totales_por_marca_en_grupos(
+    token,
+    grupos: list[str],
+    desde,
+    hasta,
+) -> dict[str, dict[str, int]]:
+    """
+    Para cada grupo, hace una llamada a la API de Rappi por cada marca que tenga
+    tiendas en ese grupo, y retorna:
+        { grupo → { marca → total_ordenes } }
+
+    Esto permite mostrar el desglose por marca (Las Gracias / Green Eat /
+    Tea Connection) en el PDF, sin afectar los totales por grupo ya calculados.
+    """
+    from config.locales import TIENDAS
+
+    resultado: dict[str, dict[str, int]] = {}
+
+    for grupo in grupos:
+        # Agrupar store_ids por marca para este grupo
+        store_ids_por_marca: dict[str, list[str]] = {}
+        for t in TIENDAS:
+            if t["grupo"] == grupo and t["rappi_id"]:
+                marca = t["marca"]
+                store_ids_por_marca.setdefault(marca, []).append(f"AR{t['rappi_id']}")
+
+        if not store_ids_por_marca:
+            resultado[grupo] = {}
+            continue
+
+        totales_marca: dict[str, int] = {}
+        for marca, store_ids in store_ids_por_marca.items():
+            body = {
+                "country_code": "AR",
+                "from":         _d(desde),
+                "to":           _d(hasta),
+                "store_ids":    store_ids,
+            }
+            total = 0
+            # Hasta 2 intentos: si la API devuelve 0 puede ser rate-limit transitorio
+            for intento in range(2):
+                try:
+                    time.sleep(0.5 + intento * 1.0)   # 0.5s primer intento, 1.5s reintento
+                    r = requests.post(SALES_URL, headers=_h(token), json=body, timeout=60)
+                    r.raise_for_status()
+                    raw = r.json()
+                    if "total_orders" in raw:
+                        total = int(raw["total_orders"])
+                    elif "data" in raw and isinstance(raw["data"], dict):
+                        total = int(raw["data"].get("total_orders", 0))
+                    else:
+                        logger.warning(f"Rappi totales marca '{marca}' grupo '{grupo}': sin total_orders")
+                    if total > 0:
+                        break   # resultado válido, no reintentar
+                    if intento == 0:
+                        logger.warning(f"Rappi totales marca '{marca}' grupo '{grupo}': 0 en intento 1, reintentando...")
+                except Exception as e:
+                    logger.error(f"Rappi totales marca '{marca}' grupo '{grupo}' intento {intento+1}: {e}")
+            totales_marca[marca] = total
+
+        resultado[grupo] = totales_marca
+        logger.info(f"Rappi totales por marca '{grupo}': {totales_marca}")
+
+    return resultado
 
 
 # ── Test standalone ───────────────────────────────────────────────────────────

@@ -160,7 +160,7 @@ def parsear_csv_ml(
                 local_nombre=tienda["grupo"],
                 fecha_orden=None,   # ML no provee fecha
                 estrellas=estrellas,
-                plato="(no disponible en ML)",
+                plato="",
                 tags=[],
                 comentario=comentario,
             ))
@@ -199,11 +199,17 @@ def encontrar_csv_mas_reciente(carpeta: str = "./mercadopago") -> str | None:
 
 # ── PROCESADOR DE TOTALES ─────────────────────────────────────────────────────
 
-def parsear_totales_ml(ruta_csv: str) -> dict[str, int]:
+def parsear_totales_ml(
+    ruta_csv: str,
+) -> tuple[dict[str, int], dict[str, dict[str, int]]]:
     """
     Lee el CSV de totales de órdenes del Looker de ML.
     Columnas esperadas: Store_Name, OrdenesTotales
-    Retorna dict { grupo → total_ordenes }.
+
+    Retorna:
+      - totales_por_grupo:       dict { grupo → total_ordenes }
+      - totales_marca_por_grupo: dict { grupo → { marca → total_ordenes } }
+
     Si una tienda aparece duplicada (mismo Store_ID), suma las órdenes.
     """
     import csv as _csv
@@ -211,7 +217,8 @@ def parsear_totales_ml(ruta_csv: str) -> dict[str, int]:
     if not ruta.exists():
         raise FileNotFoundError(f"ML totales: no se encontró '{ruta_csv}'")
 
-    totales_por_grupo: dict[str, int] = {}
+    totales_por_grupo:       dict[str, int]             = {}
+    totales_marca_por_grupo: dict[str, dict[str, int]]  = {}
 
     with open(ruta, encoding="utf-8-sig", errors="replace") as f:
         muestra = f.read(2048); f.seek(0)
@@ -219,7 +226,7 @@ def parsear_totales_ml(ruta_csv: str) -> dict[str, int]:
         reader = _csv.DictReader(f, delimiter=delim)
 
         for i, row in enumerate(reader, 1):
-            store_name = row.get("Store_Name", row.get("store_name", "")).strip()
+            store_name  = row.get("Store_Name",    row.get("store_name",    "")).strip()
             ordenes_raw = row.get("OrdenesTotales", row.get("ordenes_totales", "0")).strip()
 
             try:
@@ -234,11 +241,21 @@ def parsear_totales_ml(ruta_csv: str) -> dict[str, int]:
                 continue
 
             grupo = tienda["grupo"]
+            marca = tienda["marca"]
+
+            # Acumular por grupo
             totales_por_grupo[grupo] = totales_por_grupo.get(grupo, 0) + ordenes
+
+            # Acumular por grupo + marca
+            if grupo not in totales_marca_por_grupo:
+                totales_marca_por_grupo[grupo] = {}
+            totales_marca_por_grupo[grupo][marca] = (
+                totales_marca_por_grupo[grupo].get(marca, 0) + ordenes
+            )
 
     logger.info(f"ML totales: {len(totales_por_grupo)} grupos, "
                 f"{sum(totales_por_grupo.values())} órdenes totales")
-    return totales_por_grupo
+    return totales_por_grupo, totales_marca_por_grupo
 
 
 _ML_MOTIVO_MAP: dict[str, str] = {

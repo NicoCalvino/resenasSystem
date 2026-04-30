@@ -324,6 +324,62 @@ class ThumbWidget(Flowable):
         c.drawCentredString(cx, ly + 7, f"CANTIDAD: {self.num}")
 
 
+# ── FLOWABLE: FILA DE MARCAS ──────────────────────────────────────────────────
+MARCAS_ORDEN = ["Las Gracias", "Green Eat", "Tea Connection"]
+
+class MarcasRowWidget(Flowable):
+    """
+    Fila única con una columna por marca (Las Gracias / Green Eat / Tea Connection).
+    Muestra: nombre de la marca, total de pedidos y % reclamos de esa marca.
+    Si totales_por_marca no tiene datos para una marca, muestra '—'.
+    """
+    MARCAS = MARCAS_ORDEN
+
+    def __init__(self, reclamos, totales_por_marca):
+        super().__init__()
+        self.reclamos          = reclamos
+        self.totales_por_marca = totales_por_marca or {}
+        self.width             = CONTENT_W
+        self.height            = 34
+
+    def _contar_reclamos(self, marca):
+        m = marca.lower()
+        return sum(1 for r in self.reclamos if (r.get("marca") or "").lower() == m)
+
+    def draw(self):
+        c     = self.canv
+        n_col = len(self.MARCAS)
+        col_w = self.width / n_col
+
+        for i, marca in enumerate(self.MARCAS):
+            x  = i * col_w
+            cx = x + col_w / 2
+
+            n_rec = self._contar_reclamos(marca)
+            total = self.totales_por_marca.get(marca, 0)
+            pct   = round(n_rec / total * 100) if total else None
+
+            # Separador vertical entre columnas
+            if i > 0:
+                c.setStrokeColor(C_LGRAY)
+                c.setLineWidth(0.5)
+                c.line(x, 4, x, self.height - 4)
+
+            # Nombre de la marca
+            c.setFont("DJB", 8.5)
+            c.setFillColor(C_BLACK)
+            c.drawCentredString(cx, self.height - 13, marca.upper())
+
+            # Total pedidos · % reclamos
+            c.setFont("DJ", 8)
+            c.setFillColor(C_GRAY)
+            if total:
+                pct_str = f"%{pct}" if pct is not None else "—"
+                c.drawCentredString(cx, self.height - 26, f"{pct_str} Reclamos  ·  {total:,} Pedidos")
+            else:
+                c.drawCentredString(cx, self.height - 26, "—")
+
+
 class GraveBadge(Flowable):
     def __init__(self):
         super().__init__()
@@ -568,6 +624,13 @@ def build_story(data, styles, tpr):
     inac_count = sum(1 for rc in reclamos if rc.get("inaceptable", False))
     story.append(ReclaimosWidget(len(reclamos), tot, inac_count, reclamos))
     story.append(Spacer(1, 1 * mm))
+
+    # ── Fila de marcas: Las Gracias / Green Eat / Tea Connection ─────────────
+    totales_por_marca = data.get("totales_por_marca", {})
+    story.append(HRFlowable(width="100%", thickness=0.3, color=C_LGRAY, spaceAfter=1 * mm))
+    story.append(MarcasRowWidget(reclamos, totales_por_marca))
+    story.append(Spacer(1, 1 * mm))
+
     story.append(HRFlowable(width="100%", thickness=0.5, color=C_LGRAY, spaceAfter=4 * mm))
 
     if not reclamos:
@@ -659,7 +722,7 @@ def build_story(data, styles, tpr):
     # ── SECCIÓN RESEÑAS (después) ─────────────────────────────────────────────
     story.append(Spacer(1, 6 * mm))
     story.append(HRFlowable(width="100%", thickness=0.5, color=C_LGRAY, spaceAfter=0))
-    story.append(Paragraph("RESEÑAS (1 y 2 ESTRELLAS)", _sec))
+    story.append(Paragraph("RESEÑAS NEGATIVAS (1 y 2 ESTRELLAS)", _sec))
     story.append(HRFlowable(width="100%", thickness=0.5, color=C_LGRAY, spaceAfter=2 * mm))
     story.append(GaugeSingle("1 Y 2 ESTRELLAS", neg, tot))
     story.append(Spacer(1, 1 * mm))
@@ -696,9 +759,14 @@ def build_story(data, styles, tpr):
         ]))
         block.append(tbl)
 
+        orden_display = (
+            "Nro Orden y Plato no disponibles en ML"
+            if str(grupo["orden"]).startswith("ML-")
+            else f'Orden: {grupo["orden"]}'
+        )
         block.append(Paragraph(
             f'<font name="DJB" color="#1a1a1a">{grupo["fecha"]}</font>'
-            f'   <font name="DJ" color="#888888">Orden: {grupo["orden"]}</font>',
+            f'   <font name="DJ" color="#888888">{orden_display}</font>',
             styles["order_meta"]
         ))
 
@@ -853,6 +921,11 @@ SAMPLE_DATA = {
          "comentario": "Pedí un tiramisú, me trajeron un brownie con moho encima",
          "inaceptable": True},
     ],
+    "totales_por_marca": {
+        "Las Gracias": 210,
+        "Green Eat":   198,
+        "Tea Connection": 85,
+    },
     "resenas": [
         {
             "fecha": "30/03/2026 20:47", "orden": "460045241",

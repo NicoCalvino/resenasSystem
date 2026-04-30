@@ -27,12 +27,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 # ── Lectura de hojas ──────────────────────────────────────────────────────────
 
-def _leer_resenas_desde_hoja(ws, app: str) -> list[dict]:
+def _leer_resenas_desde_hoja(ws) -> list[dict]:
     """
-    Lee todas las reseñas de una hoja de aplicación (Rappi, PedidosYa o Mercado Libre).
+    Lee todas las reseñas de la hoja unificada "Resenas".
     Las filas de datos empiezan en la fila 3 (fila 1 = título, fila 2 = encabezados).
-    Columnas: Fecha y Hora | Nro Orden | Grupo/Local | Marca | Estrellas |
-              Plato | Etiquetas | Comentario | Error Grave
+    Columnas: Fecha y Hora | Nro Orden | Aplicacion | Grupo/Local | Marca |
+              Estrellas | Plato | Etiquetas | Comentario
     """
     resenas = []
     for row in ws.iter_rows(min_row=3, values_only=True):
@@ -55,26 +55,64 @@ def _leer_resenas_desde_hoja(ws, app: str) -> list[dict]:
                         pass
 
         # Etiquetas: separadas por " | "
-        etiquetas_raw = str(row[6]).strip() if row[6] else ""
+        etiquetas_raw = str(row[7]).strip() if row[7] else ""
         tags = [t.strip() for t in etiquetas_raw.split("|") if t.strip()] if etiquetas_raw else []
-
-        # Error grave: celda contiene "SÍ" o "SI"
-        grave_raw = str(row[8]).strip().upper() if row[8] else ""
-        grave = grave_raw in ("SÍ", "SI", "SÌ", "S")
 
         resenas.append({
             "fecha":        fecha,
             "orden_id":     str(orden_id),
-            "grupo_local":  str(row[2]) if row[2] else "",
-            "marca":        str(row[3]) if row[3] else "",
-            "app":          app,
-            "estrellas":    int(row[4]) if row[4] else 1,
-            "plato":        str(row[5]) if row[5] else "",
+            "app":          str(row[2]) if row[2] else "",
+            "grupo_local":  str(row[3]) if row[3] else "",
+            "marca":        str(row[4]) if row[4] else "",
+            "estrellas":    int(row[5]) if row[5] else 1,
+            "plato":        str(row[6]) if row[6] else "",
             "tags":         tags,
-            "comentario":   str(row[7]) if row[7] else "",
-            "grave":        grave,
+            "comentario":   str(row[8]) if row[8] else "",
+            "grave":        False,   # ya no se almacena en Resenas; se recalcula si es necesario
         })
 
+    return resenas
+
+
+def _leer_resenas_desde_hoja_legacy(ws, app: str) -> list[dict]:
+    """
+    Compatibilidad con Excels generados antes del cambio de esquema.
+    Esquema antiguo (3 hojas separadas por app):
+    Fecha y Hora | Nro Orden | Grupo/Local | Marca | Estrellas | Plato | Etiquetas | Comentario | Error Grave
+    """
+    resenas = []
+    for row in ws.iter_rows(min_row=3, values_only=True):
+        orden_id = row[1]
+        if not orden_id:
+            continue
+        fecha_raw = row[0]
+        fecha = None
+        if fecha_raw:
+            if isinstance(fecha_raw, datetime):
+                fecha = fecha_raw
+            else:
+                for fmt in ("%d/%m/%Y %H:%M", "%d/%m/%Y %H:%M:%S"):
+                    try:
+                        fecha = datetime.strptime(str(fecha_raw), fmt)
+                        break
+                    except ValueError:
+                        pass
+        etiquetas_raw = str(row[6]).strip() if row[6] else ""
+        tags = [t.strip() for t in etiquetas_raw.split("|") if t.strip()] if etiquetas_raw else []
+        grave_raw = str(row[8]).strip().upper() if len(row) > 8 and row[8] else ""
+        grave = grave_raw in ("SÍ", "SI", "SÌ", "S")
+        resenas.append({
+            "fecha":       fecha,
+            "orden_id":    str(orden_id),
+            "app":         app,
+            "grupo_local": str(row[2]) if row[2] else "",
+            "marca":       str(row[3]) if row[3] else "",
+            "estrellas":   int(row[4]) if row[4] else 1,
+            "plato":       str(row[5]) if row[5] else "",
+            "tags":        tags,
+            "comentario":  str(row[7]) if row[7] else "",
+            "grave":       grave,
+        })
     return resenas
 
 
@@ -121,25 +159,48 @@ def _leer_reclamos_desde_hoja(ws) -> list[dict]:
 def _leer_totales_desde_hoja(ws) -> dict[str, dict]:
     """
     Lee los totales por grupo desde la hoja "Totales".
-    Columnas: Grupo/Local | Rappi | PedidosYa | Mercado Libre |
-              Total Órdenes | Reseñas Negativas | Errores Graves | % Error
+    Columnas fijas: Grupo/Local | Rappi | PedidosYa | Mercado Libre | Total Ordenes
+    Columnas variables: una por cada marca (Green Eat, Las Gracias, Tea Connection, etc.)
+    Columnas finales: Reclamos | Resenas Negativas | Errores Graves | % Error
+
+    Usa la fila de encabezados para ubicar las columnas de forma robusta,
+    independientemente de cuántas marcas estén presentes.
     """
+    # Leer encabezados de la fila 2 para ubicar las columnas dinámicamente
+    headers = [cell.value for cell in ws[2]]
+    def _col(name):
+        """Devuelve el índice (0-based) de la columna con ese nombre, o None."""
+        for i, h in enumerate(headers):
+            if h and str(h).strip().lower() == name.strip().lower():
+                return i
+        return None
+
+    idx_total    = _col("Total Ordenes")   or 4
+    idx_neg      = _col("Resenas Negativas")
+    idx_graves   = _col("Errores Graves")
+
+    # Fallback por si los encabezados tienen tildes (excel generado antes de este cambio)
+    if idx_neg is None:
+        idx_neg    = _col("Reseñas Negativas") or _col("Resenas Negativas")
+    if idx_graves is None:
+        idx_graves = _col("Errores Graves")
+
+    def _int(v):
+        try:
+            return int(float(v)) if v is not None else 0
+        except (ValueError, TypeError):
+            return 0
+
     totales = {}
     for row in ws.iter_rows(min_row=3, values_only=True):
         grupo = row[0]
         if not grupo or str(grupo).strip().upper() == "TOTAL":
             continue
 
-        def _int(v):
-            try:
-                return int(float(v)) if v is not None else 0
-            except (ValueError, TypeError):
-                return 0
-
         totales[str(grupo).strip()] = {
-            "total_ordenes":      _int(row[4]),
-            "resenas_negativas":  _int(row[5]),
-            "errores_graves":     _int(row[6]),
+            "total_ordenes":     _int(row[idx_total])                      if idx_total  is not None else 0,
+            "resenas_negativas": _int(row[idx_neg])   if idx_neg    is not None else 0,
+            "errores_graves":    _int(row[idx_graves]) if idx_graves is not None else 0,
         }
 
     return totales
@@ -241,15 +302,19 @@ def regenerar_desde_excel(
         log(f"No se pudo abrir el Excel: {e}", "error")
         return 0, 0
 
-    # ── Leer reseñas de cada hoja de app ─────────────────────────────────────
+    # ── Leer reseñas de la hoja unificada "Resenas" ──────────────────────────
     todas_resenas: list[dict] = []
-    for app in ("Rappi", "PedidosYa", "Mercado Libre"):
-        if app in wb.sheetnames:
-            rs = _leer_resenas_desde_hoja(wb[app], app)
-            todas_resenas.extend(rs)
-            log(f"{app}: {len(rs)} reseñas", "info")
-        else:
-            log(f"{app}: hoja no encontrada — omitida", "warn")
+    hoja_resenas = next((n for n in wb.sheetnames if n.lower() in ("resenas", "reseñas")), None)
+    if hoja_resenas:
+        todas_resenas = _leer_resenas_desde_hoja(wb[hoja_resenas])
+        log(f"Resenas: {len(todas_resenas)} filas", "info")
+    else:
+        # Compatibilidad con Excels generados con el esquema anterior (3 hojas por app)
+        for app in ("Rappi", "PedidosYa", "Mercado Libre"):
+            if app in wb.sheetnames:
+                rs = _leer_resenas_desde_hoja_legacy(wb[app], app)
+                todas_resenas.extend(rs)
+                log(f"{app} (legacy): {len(rs)} resenas", "info")
 
     # ── Leer reclamos ─────────────────────────────────────────────────────────
     todos_reclamos: list[dict] = []
@@ -285,7 +350,7 @@ def regenerar_desde_excel(
     for rc in todos_reclamos:
         reclamos_por_grupo[rc["grupo_local"]].append(rc)
 
-    # Universo de grupos: unión de los que tienen reseñas + los de totales
+    # Universo de grupos: union de los que tienen resenas + los de totales
     todos_grupos = sorted(set(resenas_por_grupo.keys()) | set(totales.keys()))
 
     if grupo_filtro:
@@ -316,7 +381,6 @@ def regenerar_desde_excel(
             "reclamos":          _adaptar_reclamos_para_pdf(reclamos_g),
         }
 
-        # Nombre del archivo PDF (mismo esquema que main.py)
         nombre_pdf = f"{grupo}_{fecha_str_archivo}.pdf"
         nombre_pdf = "".join(
             c if c.isalnum() or c in "._- " else "_" for c in nombre_pdf)
@@ -333,11 +397,11 @@ def regenerar_desde_excel(
     return pdfs_generados, len(todos_grupos)
 
 
-# ── Entrada por línea de comandos ─────────────────────────────────────────────
+# Entrada por linea de comandos
 
 def _parse_args():
     p = argparse.ArgumentParser(
-        description="Regenera PDFs de reseñas a partir de un Excel existente.")
+        description="Regenera PDFs de resenas a partir de un Excel existente.")
     p.add_argument("excel",
                    help="Ruta al archivo Excel (.xlsx) generado por el sistema")
     p.add_argument("--output", default="./informes",

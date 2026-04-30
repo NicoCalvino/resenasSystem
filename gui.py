@@ -884,10 +884,16 @@ class ResenaApp(tk.Tk):
         self._peya_proc     = None
 
         self._cargar_config()
-        if not self.fecha_desde.get():
-            self.fecha_desde.set((datetime.now()-timedelta(days=1)).strftime("%Y-%m-%d"))
-        if not self.fecha_hasta.get():
-            self.fecha_hasta.set(datetime.now().strftime("%Y-%m-%d"))
+        ayer = datetime.now() - timedelta(days=1)
+        dia_semana_ayer = ayer.weekday()  # 0=Lun … 4=Vie, 5=Sab, 6=Dom
+        if dia_semana_ayer == 5:          # ayer fue sábado → DESDE = viernes
+            ultimo_habil = ayer - timedelta(days=1)
+        elif dia_semana_ayer == 6:        # ayer fue domingo → DESDE = viernes
+            ultimo_habil = ayer - timedelta(days=2)
+        else:
+            ultimo_habil = ayer
+        self.fecha_desde.set(ultimo_habil.strftime("%Y-%m-%d"))
+        self.fecha_hasta.set(ayer.strftime("%Y-%m-%d"))
 
         self._build_ui()
 
@@ -1012,8 +1018,8 @@ class ResenaApp(tk.Tk):
         # Columnas
         cols = tk.Frame(self, bg=BG)
         cols.pack(fill="both", expand=True, padx=14, pady=(0,14))
-        cols.columnconfigure(0, weight=55)
-        cols.columnconfigure(1, weight=45)
+        cols.columnconfigure(0, weight=40)
+        cols.columnconfigure(1, weight=60)
 
         # ── Columna izquierda ──────────────────────────────────────────────
         left = tk.Frame(cols, bg=BG)
@@ -1021,6 +1027,46 @@ class ResenaApp(tk.Tk):
 
         # Badges de estado — se alojan en el header de cada tarjeta
         self._badges = {}
+
+        # PedidosYa
+        c_peya = Card(left, "PEDIDOSYA", C_PEYA, logo_photo=logo_peya,
+                      enabled_var=self.peya_enabled)
+        c_peya.pack(fill="x", pady=(0,8))
+        _peya_badge = tk.Label(c_peya.hdr, font=(FONT, 8, "bold"), padx=7, pady=2)
+        _peya_badge.pack(side="right", padx=(4, 0))
+        self._badges["PedidosYa"] = _peya_badge
+        self._set_badge("PedidosYa", "Automático", "#EAF3DE", "#3B6D11")
+        bp = c_peya.body
+        bp.columnconfigure(0, weight=1)
+        bp.columnconfigure(1, weight=1)
+
+        fpe = tk.Frame(bp, bg=WHITE)
+        fpe.grid(row=0, column=0, sticky="ew", padx=(0,6), pady=(0,6))
+        fpe.columnconfigure(0, weight=1)
+        tk.Label(fpe, text="EMAIL", bg=WHITE, fg=MUTED,
+                 font=(FONT, 8, "bold")).pack(anchor="w")
+        tk.Entry(fpe, textvariable=self.peya_email, font=(FONT, 11),
+                 bg=FIELD_BG, fg="#222", relief="flat",
+                 highlightbackground=BORDER, highlightthickness=1).pack(
+                 fill="x", ipady=5)
+
+        fpp = tk.Frame(bp, bg=WHITE)
+        fpp.grid(row=0, column=1, sticky="ew", padx=(6,0), pady=(0,6))
+        fpp.columnconfigure(0, weight=1)
+        tk.Label(fpp, text="CONTRASEÑA", bg=WHITE, fg=MUTED,
+                 font=(FONT, 8, "bold")).pack(anchor="w")
+        tk.Entry(fpp, textvariable=self.peya_password, show="●",
+                 font=(FONT, 11), bg=FIELD_BG, fg="#222", relief="flat",
+                 highlightbackground=BORDER, highlightthickness=1).pack(
+                 fill="x", ipady=5)
+
+        save_peya = tk.Frame(bp, bg=WHITE)
+        save_peya.grid(row=1, column=0, columnspan=2, sticky="w")
+        tk.Checkbutton(save_peya, text="Recordar contraseña",
+                       variable=self.recordar_peya,
+                       bg=WHITE, fg=MUTED, font=(FONT, 9),
+                       activebackground=WHITE,
+                       selectcolor=WHITE).pack(side="left")
 
         # Rappi
         c_rappi = Card(left, "RAPPI", C_RAPPI, logo_photo=logo_rappi,
@@ -1059,46 +1105,6 @@ class ResenaApp(tk.Tk):
         save_f.grid(row=1, column=0, columnspan=2, sticky="w")
         tk.Checkbutton(save_f, text="Recordar contraseña",
                        variable=self.recordar_pass,
-                       bg=WHITE, fg=MUTED, font=(FONT, 9),
-                       activebackground=WHITE,
-                       selectcolor=WHITE).pack(side="left")
-
-        # PedidosYa
-        c_peya = Card(left, "PEDIDOSYA", C_PEYA, logo_photo=logo_peya,
-                      enabled_var=self.peya_enabled)
-        c_peya.pack(fill="x", pady=(0,8))
-        _peya_badge = tk.Label(c_peya.hdr, font=(FONT, 8, "bold"), padx=7, pady=2)
-        _peya_badge.pack(side="right", padx=(4, 0))
-        self._badges["PedidosYa"] = _peya_badge
-        self._set_badge("PedidosYa", "Automático", "#EAF3DE", "#3B6D11")
-        bp = c_peya.body
-        bp.columnconfigure(0, weight=1)
-        bp.columnconfigure(1, weight=1)
-
-        fpe = tk.Frame(bp, bg=WHITE)
-        fpe.grid(row=0, column=0, sticky="ew", padx=(0,6), pady=(0,6))
-        fpe.columnconfigure(0, weight=1)
-        tk.Label(fpe, text="EMAIL", bg=WHITE, fg=MUTED,
-                 font=(FONT, 8, "bold")).pack(anchor="w")
-        tk.Entry(fpe, textvariable=self.peya_email, font=(FONT, 11),
-                 bg=FIELD_BG, fg="#222", relief="flat",
-                 highlightbackground=BORDER, highlightthickness=1).pack(
-                 fill="x", ipady=5)
-
-        fpp = tk.Frame(bp, bg=WHITE)
-        fpp.grid(row=0, column=1, sticky="ew", padx=(6,0), pady=(0,6))
-        fpp.columnconfigure(0, weight=1)
-        tk.Label(fpp, text="CONTRASEÑA", bg=WHITE, fg=MUTED,
-                 font=(FONT, 8, "bold")).pack(anchor="w")
-        tk.Entry(fpp, textvariable=self.peya_password, show="●",
-                 font=(FONT, 11), bg=FIELD_BG, fg="#222", relief="flat",
-                 highlightbackground=BORDER, highlightthickness=1).pack(
-                 fill="x", ipady=5)
-
-        save_peya = tk.Frame(bp, bg=WHITE)
-        save_peya.grid(row=1, column=0, columnspan=2, sticky="w")
-        tk.Checkbutton(save_peya, text="Recordar contraseña",
-                       variable=self.recordar_peya,
                        bg=WHITE, fg=MUTED, font=(FONT, 9),
                        activebackground=WHITE,
                        selectcolor=WHITE).pack(side="left")
@@ -1377,24 +1383,23 @@ class ResenaApp(tk.Tk):
         email = self.peya_email.get()
         pwd   = self.peya_password.get()
 
-        # Armar vendor codes por grupo para calcular totales en el helper
+        # Armar lista de tiendas con grupo y marca para calcular totales en el helper
         try:
             sys.path.insert(0, str(Path(__file__).parent))
             from config.locales import TIENDAS
-            grupos_codes = {}
-            for t in TIENDAS:
-                if t.get("py_id"):
-                    g = t["grupo"]
-                    grupos_codes.setdefault(g, []).append(f"PY_AR;{t['py_id']}")
+            tiendas_list = [
+                {"vc": f"PY_AR;{t['py_id']}", "grupo": t["grupo"], "marca": t.get("marca", "")}
+                for t in TIENDAS if t.get("py_id")
+            ]
         except Exception:
-            grupos_codes = {}
+            tiendas_list = []
 
         try:
             self._peya_proc = _sp.Popen(
                 [sys.executable, str(helper),
                  str(flag_path), str(state_path),
                  desde, hasta,
-                 _json.dumps(grupos_codes),
+                 _json.dumps(tiendas_list),
                  email, pwd],
                 stdout=_sp.PIPE, stderr=_sp.PIPE,
                 text=True, encoding="utf-8", errors="replace",
@@ -1427,16 +1432,17 @@ class ResenaApp(tk.Tk):
             if last_data:
                 token         = last_data.get("token")
                 totales       = last_data.get("totales", {})
+                totales_marca = last_data.get("totales_marca", {})
                 device_token  = last_data.get("device_token", "")
                 reclamos_data = last_data.get("reclamos_data", [])
                 if token:
-                    return token, totales, device_token, reclamos_data
+                    return token, totales, totales_marca, device_token, reclamos_data
 
-            return None, {}, "", []
+            return None, {}, {}, "", []
 
         except Exception as e:
             self._log(f"PedidosYa error: {e}", "error")
-            return None, {}, "", []
+            return None, {}, {}, "", []
         finally:
             self._peya_proc = None
 
@@ -1462,12 +1468,12 @@ class ResenaApp(tk.Tk):
         self._set_status("Iniciando...", 2)
 
         # ── Login PedidosYa (solo si está activado) ────────────────────────
-        peya_token = peya_totales = peya_device_token = None
+        peya_token = peya_totales = peya_totales_marca = peya_device_token = None
         if use_peya:
             self._log("PedidosYa: iniciando login automático...", "info")
             self._set_status("PedidosYa: iniciando sesión...", 5)
 
-            peya_token, peya_totales, peya_device_token, _ = self._hacer_login_peya(desde, hasta)
+            peya_token, peya_totales, peya_totales_marca, peya_device_token, _ = self._hacer_login_peya(desde, hasta)
             if not peya_token:
                 self._log("PedidosYa: login cancelado o fallido.", "warn")
                 self.running = False
@@ -1514,9 +1520,13 @@ class ResenaApp(tk.Tk):
         if peya_totales:
             import json as _json
             env["PEYA_TOTALES"] = _json.dumps(peya_totales)
+        if peya_totales_marca:
+            import json as _json
+            env["PEYA_TOTALES_MARCA"] = _json.dumps(peya_totales_marca)
         state_path = Path(__file__).parent / ".peya_browser_state.json"
         if state_path.exists():
             env["PEYA_STATE_FILE"] = str(state_path)
+        env["PYTHONIOENCODING"] = "utf-8"
 
         try:
             self._proc = subprocess.Popen(
@@ -1574,9 +1584,10 @@ class ResenaApp(tk.Tk):
         finally:
             self.running = False
             self.after(0, lambda: self.btn.config(state="normal",
-                                              text="▶  Generar informes"))
+                                                  text="▶  Generar informes"))
             self.after(0, lambda: self.btn_cancel.config(state="disabled"))
             self.after(0, lambda: self.btn_continuar.config(state="disabled"))
+            self._proc = None
 
 
 if __name__ == "__main__":

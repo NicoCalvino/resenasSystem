@@ -306,13 +306,17 @@ def parsear_reclamos_peya_webhook(
 def api_resenas_peya(token: str, vendor_codes: list[str],
                      desde: datetime, hasta: datetime) -> list[dict]:
     vendor_codes_prefijados = [f"PY_AR;{c}" for c in vendor_codes]
+    # La API usa endDate como exclusivo (T03:00Z = medianoche Argentina).
+    # Se suma 1 día a hasta para que el rango sea inclusivo en ambos extremos.
+    # Ej: desde=27/4, hasta=27/4 → endDate=28/4T03Z (cubre todo el 27/4).
+    #     desde=27/4, hasta=28/4 → endDate=29/4T03Z (cubre 27/4 y 28/4).
     body = {
         "global_vendor_codes": vendor_codes_prefijados,
         "pagination": {"perPage": 20000},
         "filter": {
             "hasText":   False,
             "startDate": _diso(desde),
-            "endDate":   _diso(hasta),
+            "endDate":   _diso(hasta + timedelta(days=1)),
         },
     }
     try:
@@ -336,6 +340,59 @@ def api_resenas_peya(token: str, vendor_codes: list[str],
 
 
 # ── API TOTALES (browser) ─────────────────────────────────────────────────────
+
+def _fetch_performance_con_token(token: str, vendor_codes: list[str],
+                                  desde: datetime, hasta: datetime) -> int:
+    """
+    Llama directamente a la API de performance de PedidosYa con el token ya
+    disponible (sin necesitar el browser). Misma lógica que
+    _fetch_performance_desde_browser pero vía requests.
+    """
+    body = {
+        "global_vendor_codes": vendor_codes,
+        "from":      desde.strftime("%Y-%m-%d"),
+        "to":        hasta.strftime("%Y-%m-%d"),
+        "precision": "DAY",
+    }
+    try:
+        r = requests.post(PERF_URL, headers=_h(token), json=body, timeout=60)
+        if r.status_code != 200:
+            logger.warning(f"PedidosYa perf token: status={r.status_code}")
+            return 0
+        data = r.json().get("data", [])
+        if isinstance(data, list):
+            return sum(int(item.get("orderCount", 0)) for item in data)
+    except Exception as e:
+        logger.warning(f"PedidosYa perf token: {e}")
+    return 0
+
+
+def _calcular_totales_marca_con_token(
+    token: str,
+    grupos: list[str],
+    desde: datetime,
+    hasta: datetime,
+) -> dict[str, dict[str, int]]:
+    """
+    Calcula totales por marca para cada grupo usando el token directamente,
+    sin necesidad del browser. Útil en el path con PEYA_TOTALES.
+    """
+    import time as _time
+    resultado: dict[str, dict[str, int]] = {}
+    for grupo in grupos:
+        marcas_vc: dict[str, list[str]] = {}
+        for t in TIENDAS:
+            if t["grupo"] == grupo and t["py_id"]:
+                marcas_vc.setdefault(t["marca"], []).append(f"PY_AR;{t['py_id']}")
+        totales_marca: dict[str, int] = {}
+        for marca, vc in marcas_vc.items():
+            totales_marca[marca] = _fetch_performance_con_token(token, vc, desde, hasta)
+            _time.sleep(0.3)
+        resultado[grupo] = totales_marca
+        logger.info(f"PedidosYa totales por marca '{grupo}': {totales_marca}")
+    return resultado
+
+
 async def _fetch_performance_desde_browser(page, vendor_codes: list[str],
                                             desde: datetime, hasta: datetime) -> int:
     body = {
@@ -463,15 +520,59 @@ def convertir_peya(raw: list[dict]) -> list[Resena]:
     return resenas
 
 
+
+async def _calcular_totales_por_tienda_browser(
+    page,
+    grupos: list[str],
+    desde: datetime,
+    hasta: datetime,
+) -> tuple[dict[str, int], dict[str, dict[str, int]]]:
+    """
+    Hace UNA llamada a la API por cada tienda individual de los grupos pedidos,
+    y agrega los resultados en dos diccionarios:
+      - totales_grupo:       { grupo -> total_ordenes }
+      - totales_marca_grupo: { grupo -> { marca -> total_ordenes } }
+
+    Ventaja respecto al enfoque anterior: una sola pasada sirve para ambos
+    totales, sin llamadas duplicadas por marca.
+    """
+    totales_grupo:       dict[str, int]            = {}
+    totales_marca_grupo: dict[str, dict[str, int]] = {}
+
+    for t in TIENDAS:
+        if t["grupo"] not in grupos or not t["py_id"]:
+            continue
+        grupo = t["grupo"]
+        marca = t["marca"]
+        vc    = [f"PY_AR;{t['py_id']}"]
+        total = await _fetch_performance_desde_browser(page, vc, desde, hasta)
+        logger.info(f"PedidosYa totales tienda '{t['nombre']}': {total} órdenes")
+
+        totales_grupo[grupo] = totales_grupo.get(grupo, 0) + total
+
+        if grupo not in totales_marca_grupo:
+            totales_marca_grupo[grupo] = {}
+        totales_marca_grupo[grupo][marca] = (
+            totales_marca_grupo[grupo].get(marca, 0) + total
+        )
+
+    for g in grupos:
+        logger.info(f"PedidosYa totales '{g}': {totales_grupo.get(g, 0)} órdenes  |  por marca: {totales_marca_grupo.get(g, {})}")
+
+    return totales_grupo, totales_marca_grupo
+
+
 # ── FLUJO COMPLETO ────────────────────────────────────────────────────────────
 async def extraer_pedidosya(desde: datetime, hasta: Optional[datetime] = None,
                              headless: bool = False
-                             ) -> tuple[list[Resena], list, dict[str, int]]:
+                             ) -> tuple[list[Resena], list, dict[str, int], dict[str, dict[str, int]]]:
     """
     Extrae reseñas y totales de PedidosYa.
     Los reclamos se obtienen por separado mediante el webhook de n8n
     (ver descargar_reclamos_peya_webhook / parsear_reclamos_peya_webhook).
-    Siempre devuelve lista de reclamos vacía.
+
+    Retorna (resenas, reclamos, totales_por_grupo, totales_marca_por_grupo).
+    totales_marca_por_grupo: { grupo -> { marca -> total_ordenes } }
     """
     if not hasta:
         hasta = datetime.now()
@@ -486,9 +587,12 @@ async def extraer_pedidosya(desde: datetime, hasta: Optional[datetime] = None,
 
         if not resenas:
             logger.info("PedidosYa: sin reseñas en el período")
-            return [], [], {}
 
-        grupos_con_datos = list({r.local_id for r in resenas})
+        # Siempre obtener totales para TODOS los grupos configurados, no solo
+        # los que tuvieron reseñas negativas (un grupo puede tener ordenes pero
+        # no tener reseñas negativas en el periodo)
+        todos_grupos_peya = sorted(set(t["grupo"] for t in TIENDAS if t.get("py_id")))
+        grupos_con_datos  = list({r.local_id for r in resenas})  # solo para logs
 
         # Prioridad 1: totales pre-calculados por el helper (early return)
         totales_env = os.environ.get("PEYA_TOTALES", "").strip()
@@ -496,11 +600,22 @@ async def extraer_pedidosya(desde: datetime, hasta: Optional[datetime] = None,
             import json as _json
             try:
                 totales_pre = _json.loads(totales_env)
-                totales = {g: totales_pre.get(g, 0) for g in grupos_con_datos}
+                totales = {g: totales_pre.get(g, 0) for g in todos_grupos_peya}
                 logger.info(f"PedidosYa: totales del helper para {len(totales)} grupos")
                 for g, n in totales.items():
                     logger.info(f"PedidosYa totales '{g}': {n} órdenes")
-                return resenas, [], totales
+                # Totales por marca — provistos por el helper desde PEYA_TOTALES_MARCA
+                totales_marca: dict[str, dict[str, int]] = {}
+                totales_marca_env = os.environ.get("PEYA_TOTALES_MARCA", "").strip()
+                if totales_marca_env:
+                    try:
+                        totales_marca = _json.loads(totales_marca_env)
+                        logger.info("PedidosYa: totales por marca cargados del helper")
+                    except Exception as e2:
+                        logger.warning(f"PedidosYa: error leyendo PEYA_TOTALES_MARCA — {e2}")
+                else:
+                    logger.info("PedidosYa: totales por marca no disponibles en path token")
+                return resenas, [], totales, totales_marca
             except Exception as e:
                 logger.warning(f"PedidosYa: error leyendo PEYA_TOTALES — {e}")
 
@@ -523,15 +638,11 @@ async def extraer_pedidosya(desde: datetime, hasta: Optional[datetime] = None,
                 args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
             page = await (await browser.new_context(**ctx_kwargs)).new_page()
             await page.goto("https://portal-app.pedidosya.com", wait_until="domcontentloaded")
-            for grupo in grupos_con_datos:
-                vc = [f"PY_AR;{t['py_id']}" for t in TIENDAS
-                      if t["grupo"] == grupo and t["py_id"]]
-                total = await _fetch_performance_desde_browser(page, vc, desde, hasta)
-                totales[grupo] = total
-                logger.info(f"PedidosYa totales '{grupo}': {total} órdenes")
+            totales, totales_marca = await _calcular_totales_por_tienda_browser(
+                page, todos_grupos_peya, desde, hasta)
             await browser.close()
 
-        return resenas, [], totales
+        return resenas, [], totales, totales_marca
 
     else:
         # Sin token en entorno — flujo manual (consola sin GUI)
@@ -574,21 +685,15 @@ async def extraer_pedidosya(desde: datetime, hasta: Optional[datetime] = None,
 
             if not resenas:
                 logger.info("PedidosYa: sin reseñas en el período")
-                await browser.close()
-                return [], [], {}
 
-            grupos_con_datos = list({r.local_id for r in resenas})
-            totales = {}
-            for grupo in grupos_con_datos:
-                vc = [f"PY_AR;{t['py_id']}" for t in TIENDAS
-                      if t["grupo"] == grupo and t["py_id"]]
-                total = await _fetch_performance_desde_browser(page, vc, desde, hasta)
-                totales[grupo] = total
-                logger.info(f"PedidosYa totales '{grupo}': {total} órdenes")
-
+            todos_grupos_peya = sorted(set(t["grupo"] for t in TIENDAS if t.get("py_id")))
+            totales, totales_marca = await _calcular_totales_por_tienda_browser(
+                page, todos_grupos_peya, desde, hasta)
             await browser.close()
-        return resenas, [], totales
+        return resenas, [], totales, totales_marca
 
+
+# ── Test standalone ─────────────
 
 # ── Test standalone ───────────────────────────────────────────────────────────
 if __name__ == "__main__":

@@ -18,7 +18,7 @@ FLAG         = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(".peya_login_ok"
 STATE_FILE   = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(".peya_browser_state.json")
 DESDE        = sys.argv[3] if len(sys.argv) > 3 else None
 HASTA        = sys.argv[4] if len(sys.argv) > 4 else None
-GRUPOS_CODES = json.loads(sys.argv[5]) if len(sys.argv) > 5 else {}
+TIENDAS_LIST = json.loads(sys.argv[5]) if len(sys.argv) > 5 else []
 PEYA_EMAIL   = sys.argv[6] if len(sys.argv) > 6 else ""
 PEYA_PASSWORD= sys.argv[7] if len(sys.argv) > 7 else ""
 
@@ -142,14 +142,14 @@ async def main():
         state = await context.storage_state()
         STATE_FILE.write_text(json.dumps(state))
 
-        # ── Totales de órdenes por grupo ──────────────────────────────────────
-        totales = {}
-        if GRUPOS_CODES and DESDE and HASTA:
-            for grupo, vendor_codes in GRUPOS_CODES.items():
-                body = json.dumps({
-                    "global_vendor_codes": vendor_codes,
-                    "from": DESDE, "to": HASTA, "precision": "DAY"
-                })
+        # ── Totales de órdenes por tienda individual (agrega por grupo y marca) ──
+        totales       = {}   # { grupo -> total }
+        totales_marca = {}   # { grupo -> { marca -> total } }
+        if TIENDAS_LIST and DESDE and HASTA:
+            for tienda in TIENDAS_LIST:
+                vc    = tienda["vc"]
+                grupo = tienda["grupo"]
+                marca = tienda.get("marca", "")
                 result = await page.evaluate(f"""
                     async () => {{
                         try {{
@@ -163,7 +163,10 @@ async def main():
                                         return 'Bearer ' + auth.accessToken;
                                     }})()
                                 }},
-                                body: JSON.stringify({json.loads(body)})
+                                body: JSON.stringify({{
+                                    "global_vendor_codes": ["{vc}"],
+                                    "from": "{DESDE}", "to": "{HASTA}", "precision": "DAY"
+                                }})
                             }});
                             const data = await r.json();
                             return {{ status: r.status, data: data }};
@@ -172,17 +175,20 @@ async def main():
                         }}
                     }}
                 """)
+                n = 0
                 if result and result.get("status") == 200:
                     data = result.get("data", {}).get("data", [])
-                    totales[grupo] = sum(int(i.get("orderCount", 0))
-                                        for i in data) if isinstance(data, list) else 0
-                else:
-                    totales[grupo] = 0
+                    n = sum(int(i.get("orderCount", 0)) for i in data) if isinstance(data, list) else 0
+                totales[grupo] = totales.get(grupo, 0) + n
+                if grupo not in totales_marca:
+                    totales_marca[grupo] = {}
+                totales_marca[grupo][marca] = totales_marca[grupo].get(marca, 0) + n
 
         await browser.close()
         print(json.dumps({
             "token":         token,
             "totales":       totales,
+            "totales_marca": totales_marca,
             "device_token":  device_token,
             "reclamos_data": [],
         }), flush=True)

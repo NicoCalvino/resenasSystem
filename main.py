@@ -90,18 +90,26 @@ async def main():
     totales_peya:   dict[str, int] = {}
     totales_ml:     dict[str, int] = {}
 
+    # Totales por marca dentro de cada grupo: { grupo → { marca → ordenes } }
+    totales_marca_por_grupo: dict[str, dict[str, int]] = {}
+
     # — PedidosYa
     if args.skip_peya:
         logger.info("── PedidosYa: omitido (desactivado desde la GUI)")
     else:
         logger.info("── Extrayendo PedidosYa...")
         try:
-            rs, rcs, tots = await extraer_pedidosya(fecha_desde, fecha_hasta)
+            rs, rcs, tots, tots_marca = await extraer_pedidosya(fecha_desde, fecha_hasta)
             todas_resenas.extend(rs)
             todos_reclamos.extend(rcs)
             for g, n in tots.items():
                 totales_grupo[g] = totales_grupo.get(g, 0) + n
                 totales_peya[g] = totales_peya.get(g, 0) + n
+            for g, marcas in tots_marca.items():
+                if g not in totales_marca_por_grupo:
+                    totales_marca_por_grupo[g] = {}
+                for marca, n in marcas.items():
+                    totales_marca_por_grupo[g][marca] = totales_marca_por_grupo[g].get(marca, 0) + n
             logger.info(f"PedidosYa: {len(rs)} reseñas negativas, {len(rcs)} reclamos")
         except Exception as e:
             logger.error(f"PedidosYa falló: {e}")
@@ -138,13 +146,18 @@ async def main():
         if rappi_email and rappi_password:
             logger.info("── Extrayendo Rappi...")
             try:
-                rs, rcs, tots = await extraer_rappi(
+                rs, rcs, tots, tots_marca = await extraer_rappi(
                     rappi_email, rappi_password, fecha_desde, fecha_hasta, headless)
                 todas_resenas.extend(rs)
                 todos_reclamos.extend(rcs)
                 for g, n in tots.items():
                     totales_grupo[g] = totales_grupo.get(g, 0) + n
                     totales_rappi[g] = totales_rappi.get(g, 0) + n
+                for g, marcas in tots_marca.items():
+                    if g not in totales_marca_por_grupo:
+                        totales_marca_por_grupo[g] = {}
+                    for marca, n in marcas.items():
+                        totales_marca_por_grupo[g][marca] = totales_marca_por_grupo[g].get(marca, 0) + n
                 logger.info(f"Rappi: {len(rs)} reseñas negativas, {len(rcs)} reclamos")
                 logger.info("Rappi: extraccion completada OK")
             except Exception as e:
@@ -200,10 +213,15 @@ async def main():
     if ruta_ml_totales:
         logger.info(f"── Procesando CSV Mercado Libre (totales): {ruta_ml_totales}")
         try:
-            tots_ml = parsear_totales_ml(ruta_ml_totales)
+            tots_ml, tots_marca_ml = parsear_totales_ml(ruta_ml_totales)
             for g, n in tots_ml.items():
                 totales_grupo[g] = totales_grupo.get(g, 0) + n
                 totales_ml[g]    = tots_ml.get(g, 0)
+            for g, marcas in tots_marca_ml.items():
+                if g not in totales_marca_por_grupo:
+                    totales_marca_por_grupo[g] = {}
+                for marca, n in marcas.items():
+                    totales_marca_por_grupo[g][marca] = totales_marca_por_grupo[g].get(marca, 0) + n
             logger.info(f"Mercado Libre: totales cargados para {len(tots_ml)} grupos")
         except Exception as e:
             logger.error(f"Mercado Libre CSV totales falló: {e}")
@@ -249,6 +267,8 @@ async def main():
             "errores_graves":     resumen.errores_graves,
             "resenas":            _adaptar_resenas(resumen.resenas),
             "reclamos":           _adaptar_reclamos(reclamos_por_local.get(resumen.local_id, [])),
+            # Totales por marca para el desglose en el PDF (Las Gracias / Green Eat / Tea Connection)
+            "totales_por_marca":  totales_marca_por_grupo.get(resumen.local_id, {}),
         }
 
         try:
@@ -269,6 +289,7 @@ async def main():
             totales_ml=totales_ml,
             ruta_salida=str(ruta_excel),
             reclamos=todos_reclamos if todos_reclamos else None,
+            totales_marca_por_grupo=totales_marca_por_grupo,
         )
         logger.info(f"  Excel: {ruta_excel}")
     except Exception as e:
