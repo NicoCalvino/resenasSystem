@@ -1,7 +1,10 @@
-# Sistema de Reseñas Negativas
+# Sistema de Reseñas Negativas — Informe Mensual
 
 Extrae reseñas de 1-2 estrellas de Rappi, PedidosYa y Mercado Pago,
-detecta errores graves y genera un PDF por local.
+detecta errores graves y genera un único Excel consolidado.
+
+Esta variante está pensada para corridas sobre periodos largos (mensuales);
+los timeouts de las APIs y del login son parametrizables via `.env`.
 
 ## Instalación
 
@@ -19,6 +22,19 @@ export RAPPI_EMAIL="nicolascalvino@gmail.com"
 export RAPPI_PASSWORD="RVc0Iq5t1X*y"
 export PEYA_EMAIL="nicolascalvino@gmail.com"
 export PEYA_PASSWORD="uRW.zB*,xQQ2Ftc"
+```
+
+### Timeouts (opcionales, en `.env`)
+
+Para corridas largas, conviene subir los timeouts de las APIs y del login:
+
+```bash
+HTTP_TIMEOUT=300                    # requests a APIs Rappi/PeYa (default 300 s)
+WEBHOOK_TIMEOUT=600                 # descarga de CSVs via webhook n8n (default 600 s)
+SHEETS_TIMEOUT=30                   # urlopen contra Google Sheets (default 30 s)
+PLAYWRIGHT_LOGIN_TIMEOUT_MS=60000   # esperar selectores de login
+PLAYWRIGHT_TOKEN_TIMEOUT_MS=120000  # esperar token en localStorage
+PLAYWRIGHT_CAPTCHA_TIMEOUT_MS=600000 # esperar resolución manual de captcha
 ```
 
 ## Uso
@@ -48,7 +64,8 @@ resenas_system/
 ├── requirements.txt
 ├── config/
 │   ├── models.py              # Modelos de datos (Resena, ResumenLocal)
-│   └── locales.py             # 65 tiendas con IDs reales de Rappi/PedidosYa
+│   ├── locales.py             # 65 tiendas con IDs reales de Rappi/PedidosYa
+│   └── timeouts.py            # Timeouts parametrizables por .env
 ├── extractors/
 │   ├── rappi.py               # Login → token localStorage → API REST
 │   ├── pedidosya.py           # Login → interceptar token → API REST
@@ -56,7 +73,7 @@ resenas_system/
 ├── processor/
 │   └── procesador.py          # Detección errores graves + agrupación por local
 └── report/
-    └── generador_pdf.py       # PDF con gauges, estrellas, badges error grave
+    └── generador_excel.py     # Excel con pestañas Reclamos / Reseñas / Totales
 ```
 
 ## Credenciales

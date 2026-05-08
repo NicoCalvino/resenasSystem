@@ -12,6 +12,9 @@ from typing import Optional
 from playwright.async_api import async_playwright, TimeoutError as PWTimeout
 from config.models import Resena, Reclamo
 from config.locales import RAPPI_INDEX, ALL_RAPPI_IDS, ALL_RAPPI_IDS_AR
+from config.timeouts import (HTTP_TIMEOUT, PLAYWRIGHT_LOGIN_TIMEOUT_MS,
+                             PLAYWRIGHT_TOKEN_TIMEOUT_MS,
+                             PLAYWRIGHT_CAPTCHA_TIMEOUT_MS)
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +53,7 @@ async def obtener_token(email: str, password: str, headless=True) -> str:
         )).new_page()
 
         await page.goto("https://partners.rappi.com/login", wait_until="networkidle")
-        await page.wait_for_selector('input[type="email"]', timeout=15_000)
+        await page.wait_for_selector('input[type="email"]', timeout=PLAYWRIGHT_LOGIN_TIMEOUT_MS)
         await page.fill('input[type="email"]', email)
         await page.fill('input[type="password"]', password)
         await page.click('button[type="submit"]')
@@ -58,7 +61,8 @@ async def obtener_token(email: str, password: str, headless=True) -> str:
         logger.info("Rappi: esperando token en localStorage...")
         try:
             await page.wait_for_function(
-                "window.localStorage.getItem('access_token') !== null", timeout=30_000)
+                "window.localStorage.getItem('access_token') !== null",
+                timeout=PLAYWRIGHT_TOKEN_TIMEOUT_MS)
         except PWTimeout:
             if headless:
                 # Captcha detectado en modo silencioso: reabrir el browser en modo visible
@@ -69,11 +73,13 @@ async def obtener_token(email: str, password: str, headless=True) -> str:
             else:
                 # Ya estamos en modo visible; esperar hasta 5 minutos a que el usuario
                 # resuelva el captcha y el token aparezca en localStorage.
-                logger.warning("Rappi: complete el captcha en el navegador que se abrió (hasta 5 minutos)...")
+                logger.warning(
+                    f"Rappi: complete el captcha en el navegador que se abrió "
+                    f"(hasta {PLAYWRIGHT_CAPTCHA_TIMEOUT_MS // 1000}s)...")
                 try:
                     await page.wait_for_function(
                         "window.localStorage.getItem('access_token') !== null",
-                        timeout=300_000)
+                        timeout=PLAYWRIGHT_CAPTCHA_TIMEOUT_MS)
                 except PWTimeout:
                     await page.screenshot(path="/tmp/rappi_login_error.png")
                     await browser.close()
@@ -113,7 +119,7 @@ def api_resenas(token, store_ids, desde, hasta) -> list[dict]:
             "per_page":   per_page,
             "page":       page,
         }
-        r = requests.post(REVIEWS_URL, headers=_h(token), json=body, timeout=60)
+        r = requests.post(REVIEWS_URL, headers=_h(token), json=body, timeout=HTTP_TIMEOUT)
         r.raise_for_status()
 
         reviews = r.json().get("data", {}).get("reviews", [])
@@ -166,7 +172,7 @@ def api_ordenes(token, desde, hasta, order_ids: list[str]) -> dict[str, dict]:
         }
 
         try:
-            r = requests.post(ORDERS_URL, headers=_h(token), json=body, timeout=60)
+            r = requests.post(ORDERS_URL, headers=_h(token), json=body, timeout=HTTP_TIMEOUT)
             r.raise_for_status()
             results = r.json().get("results", [])
         except Exception as e:
@@ -284,7 +290,7 @@ def api_reclamos_ordenes(token, store_ids, desde, hasta) -> list[dict]:
             "order_date:gte":  _d(desde),
             "order_date:lte":  _d(hasta),
         }
-        r = requests.post(COMP_SALES_URL, headers=_h(token), json=body, timeout=60)
+        r = requests.post(COMP_SALES_URL, headers=_h(token), json=body, timeout=HTTP_TIMEOUT)
         r.raise_for_status()
 
         if not r.text.strip():
@@ -328,7 +334,7 @@ def api_reclamos_detalles(token, store_ids, order_ids: list[str]) -> dict[str, l
             "page_size":   1,
         }
         try:
-            r = requests.post(COMP_URL, headers=_h(token), json=body, timeout=60)
+            r = requests.post(COMP_URL, headers=_h(token), json=body, timeout=HTTP_TIMEOUT)
             r.raise_for_status()
             if not r.text.strip():
                 logger.warning(f"Rappi reclamo detalle {oid_str}: respuesta vacía — omitiendo")
@@ -529,7 +535,7 @@ def calcular_total_ordenes_grupo(token, grupo: str, desde, hasta) -> int:
     }
 
     try:
-        r = requests.post(SALES_URL, headers=_h(token), json=body, timeout=60)
+        r = requests.post(SALES_URL, headers=_h(token), json=body, timeout=HTTP_TIMEOUT)
         r.raise_for_status()
         raw = r.json()
     except Exception as e:
@@ -607,7 +613,7 @@ def calcular_totales_por_marca_en_grupos(
             for intento in range(2):
                 try:
                     time.sleep(0.5 + intento * 1.0)   # 0.5s primer intento, 1.5s reintento
-                    r = requests.post(SALES_URL, headers=_h(token), json=body, timeout=60)
+                    r = requests.post(SALES_URL, headers=_h(token), json=body, timeout=HTTP_TIMEOUT)
                     r.raise_for_status()
                     raw = r.json()
                     if "total_orders" in raw:

@@ -809,7 +809,7 @@ class KeywordsGravesWindow(tk.Toplevel):
             info_f,
             text=(
                 "⚠  Las reseñas que contengan estas palabras (o prefijos) se marcarán\n"
-                "   como errores graves y se resaltarán en los informes PDF.\n"
+                "   como errores graves y se resaltarán en el informe Excel.\n"
                 "   Para modificar la lista, editá la hoja Keywords en el Google Sheet."
             ),
             bg="#FFF3E0", fg="#7A4000", font=(FONT, 9),
@@ -1199,72 +1199,12 @@ class ResenaApp(tk.Tk):
             relief="flat", bd=0, pady=6, cursor="hand2",
             highlightbackground=BORDER, highlightthickness=1,
             state="disabled", command=self._cancelar)
-        self.btn_cancel.grid(row=1, column=0, sticky="ew", padx=(0,3))
-
-        self.btn_excel = tk.Button(
-            btn_frame, text="📄  Regenerar PDFs",
-            bg=WHITE, fg="#444444", font=(FONT, 10),
-            relief="flat", bd=0, pady=6, cursor="hand2",
-            highlightbackground=BORDER, highlightthickness=1,
-            command=self._iniciar_desde_excel)
-        self.btn_excel.grid(row=1, column=1, sticky="ew", padx=(3,0))
+        self.btn_cancel.grid(row=1, column=0, columnspan=2, sticky="ew")
 
         # Actualizar badge ML al escribir la ruta
         self.ml_resenas.trace_add("write",   lambda *_: self._update_ml_badge())
 
     # ── Helpers UI ────────────────────────────────────────────────────────────
-
-    def _iniciar_desde_excel(self):
-        """Abre un diálogo para elegir el Excel y regenera los PDFs a partir de él."""
-        if self.running:
-            messagebox.showwarning("Proceso en curso",
-                                   "Esperá a que termine el proceso actual.", parent=self)
-            return
-
-        ruta = filedialog.askopenfilename(
-            title="Seleccioná el Excel de reseñas",
-            filetypes=[("Excel", "*.xlsx"), ("Todos", "*")],
-            parent=self,
-        )
-        if not ruta:
-            return
-
-        out = self.output_dir.get() or "./informes"
-
-        # Limpiar log y arrancar en hilo para no bloquear la UI
-        self.running = True
-        self.btn_excel.config(state="disabled", text="Procesando...")
-        self.log.config(state="normal")
-        self.log.delete("1.0", "end")
-        self.log.config(state="disabled")
-        self.progress_var.set(0)
-
-        def _run():
-            try:
-                from regenerar_pdfs import regenerar_desde_excel
-
-                def _log_gui(msg, tag="info"):
-                    self._log(msg, tag)
-
-                self._set_status("Regenerando PDFs desde Excel...", 10)
-                ok, total = regenerar_desde_excel(
-                    ruta_excel=ruta,
-                    output_dir=out,
-                    log_fn=_log_gui,
-                )
-                self._set_status(
-                    f"Completado: {ok}/{total} PDFs generados." if total else "Sin grupos encontrados.",
-                    100,
-                )
-            except Exception as e:
-                self._log(f"Error inesperado: {e}", "error")
-                self._set_status("Error durante la regeneración.", 0)
-            finally:
-                self.running = False
-                self.after(0, lambda: self.btn_excel.config(
-                    state="normal", text="📄  Regenerar PDFs desde Excel"))
-
-        threading.Thread(target=_run, daemon=True).start()
 
     def _abrir_locales(self):
         """Abre (o trae al frente) la ventana de gestión de locales."""
@@ -1557,23 +1497,18 @@ class ResenaApp(tk.Tk):
                     self._set_badge("Rappi", "Error", "#FDECEA", "#A52A2A")
                 elif "mercado libre" in l and "procesando" in l:
                     self._set_status("Mercado Libre: procesando...", 72)
-                elif "generando" in l and "pdf" in l:
-                    self._set_status("Generando PDFs...", 80)
-                elif "pdf:" in l:
-                    cur = self.progress_var.get()
-                    self._set_status("Generando PDFs...", min(cur+0.6, 93))
                 elif "excel:" in l:
                     self._set_status("Generando Excel...", 95)
                 elif "completado" in l:
-                    self._set_status("¡Informes generados!", 100)
+                    self._set_status("¡Informe generado!", 100)
 
             self._proc.wait()
             if self._proc.returncode == 0:
                 self._log("Proceso finalizado correctamente.", "ok")
-                self._set_status("¡Informes generados correctamente!", 100)
+                self._set_status("¡Informe Excel generado correctamente!", 100)
                 self.after(0, lambda: messagebox.showinfo(
                     "Completado",
-                    f"Los informes se generaron en:\n{Path(out).resolve()}"))
+                    f"El informe Excel se generó en:\n{Path(out).resolve()}"))
             else:
                 self._log(f"El proceso terminó con errores.", "error")
                 self._set_status("Proceso con errores — revisá el log.", 100)

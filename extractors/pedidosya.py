@@ -24,6 +24,7 @@ from typing import Optional
 from playwright.async_api import async_playwright, TimeoutError as PWTimeout
 from config.models import Resena, Reclamo
 from config.locales import PY_INDEX, ALL_PY_IDS, TIENDAS
+from config.timeouts import HTTP_TIMEOUT, WEBHOOK_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +129,7 @@ def descargar_reclamos_peya_webhook(url: str, carpeta: str = "./pedidosya") -> s
     logger.info("PedidosYa reclamos: descargando desde webhook Apps Script...")
 
     try:
-        with urllib.request.urlopen(url, timeout=90) as response:
+        with urllib.request.urlopen(url, timeout=WEBHOOK_TIMEOUT) as response:
             contenido = response.read()
     except urllib.error.URLError as e:
         raise RuntimeError(f"PedidosYa reclamos: no se pudo conectar al webhook: {e}")
@@ -320,7 +321,7 @@ def api_resenas_peya(token: str, vendor_codes: list[str],
         },
     }
     try:
-        r = requests.post(REVIEWS_URL, headers=_h(token), json=body, timeout=60)
+        r = requests.post(REVIEWS_URL, headers=_h(token), json=body, timeout=HTTP_TIMEOUT)
         logger.info(f"PedidosYa reviews — Status: {r.status_code}")
         r.raise_for_status()
         reviews = r.json().get("reviews", [])
@@ -355,7 +356,7 @@ def _fetch_performance_con_token(token: str, vendor_codes: list[str],
         "precision": "DAY",
     }
     try:
-        r = requests.post(PERF_URL, headers=_h(token), json=body, timeout=60)
+        r = requests.post(PERF_URL, headers=_h(token), json=body, timeout=HTTP_TIMEOUT)
         if r.status_code != 200:
             logger.warning(f"PedidosYa perf token: status={r.status_code}")
             return 0

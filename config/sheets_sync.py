@@ -52,8 +52,8 @@ _CACHE_PATH = _DIR / "cache_sheets.json"     # copia local de Sheets
 SHEET_TIENDAS  = "Tiendas"
 SHEET_KEYWORDS = "Keywords"
 
-# Timeout de conexion en segundos
-_TIMEOUT = 10
+# Timeout de conexion en segundos (parametrizable por SHEETS_TIMEOUT en .env)
+from config.timeouts import SHEETS_TIMEOUT as _TIMEOUT
 
 
 # ==============================================================================

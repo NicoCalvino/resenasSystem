@@ -14,6 +14,15 @@ Uso: python peya_login_helper.py <flag_file> <state_file> <desde> <hasta> [vendo
 import asyncio, sys, json
 from pathlib import Path
 
+# Cargar .env y permitir importar config/timeouts (este script corre como subprocess)
+sys.path.insert(0, str(Path(__file__).parent))
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+from config.timeouts import PLAYWRIGHT_TOKEN_TIMEOUT_MS, PLAYWRIGHT_LOGIN_TIMEOUT_MS
+
 FLAG         = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(".peya_login_ok")
 STATE_FILE   = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(".peya_browser_state.json")
 DESDE        = sys.argv[3] if len(sys.argv) > 3 else None
@@ -37,7 +46,7 @@ TOKEN_JS = """
 """
 
 
-async def _wait_for_token(page, timeout_ms=30_000) -> bool:
+async def _wait_for_token(page, timeout_ms=PLAYWRIGHT_TOKEN_TIMEOUT_MS) -> bool:
     """Espera hasta timeout_ms ms a que aparezca el token en localStorage. Devuelve True si lo encuentra."""
     try:
         await page.wait_for_function(TOKEN_JS, timeout=timeout_ms)
@@ -77,7 +86,7 @@ async def main():
                 email_sel = None
                 for sel in EMAIL_SELECTORS:
                     try:
-                        await page.wait_for_selector(sel, timeout=5_000)
+                        await page.wait_for_selector(sel, timeout=PLAYWRIGHT_LOGIN_TIMEOUT_MS)
                         email_sel = sel
                         break
                     except Exception:
@@ -95,7 +104,7 @@ async def main():
                 await submit.click()
 
                 # Esperar hasta 30s a que aparezca el token (login exitoso)
-                login_automatico = await _wait_for_token(page, timeout_ms=30_000)
+                login_automatico = await _wait_for_token(page, timeout_ms=PLAYWRIGHT_TOKEN_TIMEOUT_MS)
 
             except Exception:
                 login_automatico = False

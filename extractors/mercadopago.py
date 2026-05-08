@@ -22,6 +22,7 @@ from pathlib import Path
 
 from config.models import Resena
 from config.locales import TIENDAS, MP_INDEX
+from config.timeouts import WEBHOOK_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -435,7 +436,7 @@ def descargar_reclamos_desde_webhook(url: str, carpeta: str = "./mercadopago") -
     logger.info(f"ML reclamos: descargando desde webhook...")
 
     try:
-        with urllib.request.urlopen(url, timeout=30) as response:
+        with urllib.request.urlopen(url, timeout=WEBHOOK_TIMEOUT) as response:
             contenido = response.read()
     except urllib.error.URLError as e:
         raise RuntimeError(f"ML reclamos: no se pudo conectar al webhook: {e}")

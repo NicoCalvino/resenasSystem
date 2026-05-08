@@ -13,7 +13,7 @@ Variables de entorno requeridas:
     PEYA_EMAIL,  PEYA_PASSWORD
 
 Salida:
-    Un PDF por grupo/local en la carpeta ./informes/
+    Un único Excel consolidado en la carpeta ./informes/.
 """
 import asyncio, argparse, logging, os, sys
 from datetime import datetime, timedelta
@@ -32,7 +32,6 @@ from extractors.mercadopago  import (parsear_csv_ml, encontrar_csv_mas_reciente,
                                      parsear_totales_ml, encontrar_csv_totales,
                                      descargar_reclamos_desde_webhook)
 from processor.procesador   import Procesador
-from report.generador_pdf   import build_report
 from report.generador_excel import generar_excel
 from config.models          import ResumenLocal
 
@@ -58,8 +57,7 @@ def parse_args():
     p.add_argument("--skip-peya",     action="store_true", help="Omitir extracción de PedidosYa")
     p.add_argument("--skip-ml",       action="store_true", help="Omitir extracción de Mercado Libre")
     p.add_argument("--headless", default="true", help="true/false — mostrar browser")
-    p.add_argument("--solo-pdf", default=None, help="Generar PDF de prueba sin extracción (grupo)")
-    p.add_argument("--output",   default="./informes", help="Carpeta de salida de PDFs")
+    p.add_argument("--output",   default="./informes", help="Carpeta de salida del Excel")
     return p.parse_args()
 
 
@@ -241,45 +239,10 @@ async def main():
     resumenes: list[ResumenLocal] = proc.procesar(
         todas_resenas, totales_grupo, fecha_desde, fecha_hasta)
 
-    # ── generación de PDFs ─────────────────────────────────────────────────────
-    logger.info(f"── Generando {len(resumenes)} PDFs...")
-    fecha_str = fecha_hasta.strftime("%Y-%m-%d")
-    pdfs_generados = []
-
-    # Mapa reclamos por local para lookup rápido en el loop de PDFs
-    reclamos_por_local: dict[str, list] = {}
-    for rc in todos_reclamos:
-        reclamos_por_local.setdefault(rc.local_id, []).append(rc)
-
-    for resumen in resumenes:
-        nombre_archivo = f"{resumen.local_nombre}_{fecha_str}.pdf"
-        # limpiar caracteres no válidos para nombres de archivo
-        nombre_archivo = "".join(
-            c if c.isalnum() or c in "._- " else "_" for c in nombre_archivo)
-        ruta_pdf = output_dir / nombre_archivo
-
-        # adaptar ResumenLocal al formato que espera generador_pdf
-        data = {
-            "local":              resumen.local_nombre,
-            "fecha":              f"{fecha_hasta.day}/{fecha_hasta.month}/{fecha_hasta.year}",
-            "total_ordenes":      resumen.total_ordenes,
-            "resenas_negativas":  resumen.resenas_negativas,
-            "errores_graves":     resumen.errores_graves,
-            "resenas":            _adaptar_resenas(resumen.resenas),
-            "reclamos":           _adaptar_reclamos(reclamos_por_local.get(resumen.local_id, [])),
-            # Totales por marca para el desglose en el PDF (Las Gracias / Green Eat / Tea Connection)
-            "totales_por_marca":  totales_marca_por_grupo.get(resumen.local_id, {}),
-        }
-
-        try:
-            build_report(data, str(ruta_pdf))
-            pdfs_generados.append(ruta_pdf)
-            logger.info(f"  PDF: {ruta_pdf}")
-        except Exception as e:
-            logger.error(f"  Error generando PDF para {resumen.local_nombre}: {e}")
-
     # ── generación de Excel ───────────────────────────────────────────────────
-    ruta_excel = output_dir / f"resenas_{fecha_str}.xlsx"
+    fecha_str  = fecha_hasta.strftime("%Y-%m-%d")
+    fecha_ini  = fecha_desde.strftime("%Y-%m-%d")
+    ruta_excel = output_dir / f"resenas_{fecha_ini}_a_{fecha_str}.xlsx"
     try:
         generar_excel(
             resumenes=resumenes,
@@ -298,67 +261,10 @@ async def main():
     # ── resumen final ──────────────────────────────────────────────────────────
     logger.info(f"\n{'='*50}")
     logger.info(f"COMPLETADO")
-    logger.info(f"  Período:          {fecha_desde.date()} → {fecha_hasta.date()}")
+    logger.info(f"  Período:           {fecha_desde.date()} → {fecha_hasta.date()}")
     logger.info(f"  Grupos procesados: {len(resumenes)}")
-    logger.info(f"  PDFs generados:    {len(pdfs_generados)}")
     logger.info(f"  Carpeta:           {output_dir.resolve()}")
     logger.info(f"{'='*50}")
-
-
-def _adaptar_resenas(resenas):
-    """
-    Convierte lista de Resena al formato dict que espera build_report().
-    Agrupa por orden_id para que el PDF muestre órdenes consolidadas.
-    """
-    from collections import OrderedDict
-    por_orden = OrderedDict()
-    for r in resenas:
-        if r.orden_id not in por_orden:
-            por_orden[r.orden_id] = {
-                "fecha":    r.fecha_orden.strftime("%d/%m/%Y %H:%M") if r.fecha_orden else "",
-                "orden":    r.orden_id,
-                "marca":    r.marca,
-                "app":      r.app,
-                "estrellas": r.estrellas,
-                "platos":   [],
-            }
-        por_orden[r.orden_id]["platos"].append({
-            "nombre":    r.plato,
-            "tags":      r.tags,
-            "comentario": r.comentario,
-            "grave":     r.es_error_grave,
-        })
-    return list(por_orden.values())
-
-
-def _adaptar_reclamos(reclamos):
-    """
-    Convierte lista de Reclamo al formato dict que espera build_report().
-    El campo 'inaceptable' se calcula aplicando la detección de keywords graves
-    al comentario y razón del reclamo.
-    Se deduplica por orden_id para evitar que órdenes con múltiples platos
-    aparezcan repetidas cuando el CSV del webhook genera una fila por plato.
-    """
-    from processor.procesador import es_error_grave
-    vistos = set()
-    result = []
-    for rc in sorted(reclamos, key=lambda r: r.fecha_orden):
-        key = (rc.orden_id, rc.local_id)
-        if key in vistos:
-            continue
-        vistos.add(key)
-        result.append({
-            "fecha":             rc.fecha_orden.strftime("%d/%m/%Y %H:%M"),
-            "orden":             rc.orden_id,
-            "app":               rc.app,
-            "marca":             rc.marca,
-            "platos_pedidos":    rc.platos_pedidos,
-            "platos_reclamados": rc.platos_reclamados,
-            "razon":             rc.razon,
-            "comentario":        rc.comentario,
-            "inaceptable":       es_error_grave(rc.comentario or "", [rc.razon or ""]),
-        })
-    return result
 
 
 if __name__ == "__main__":
