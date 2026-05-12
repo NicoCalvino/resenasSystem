@@ -397,25 +397,93 @@ def regenerar_desde_excel(
     return pdfs_generados, len(todos_grupos)
 
 
-# Entrada por linea de comandos
+# ── PDFs mensuales (historico.json) ──────────────────────────────────────────
+
+def regenerar_pdfs_mensuales(
+    output_dir: str = "./informes",
+    anio: int = None,
+    mes: int = None,
+    log_fn=None,
+) -> tuple[int, int]:
+    """
+    Genera los 6 PDFs mensuales de reclamos por grupo (marca × DK)
+    a partir del historico.json compartido en Google Drive.
+
+    Args:
+        output_dir:  Carpeta donde se guardarán los PDFs.
+        anio:        Año del mes a reportar (default: mes actual).
+        mes:         Mes del mes a reportar (default: mes actual).
+        log_fn:      Función de logging; recibe (mensaje, tag).
+
+    Returns:
+        (pdfs_generados, total_grupos)
+    """
+    from report.generador_pdf_mensual import generar_pdfs_mensuales
+
+    def log(msg, tag="info"):
+        if log_fn:
+            log_fn(msg, tag)
+        else:
+            prefijos = {"ok": "✓", "error": "✗", "warn": "!", "head": "─"}
+            print(f"{prefijos.get(tag, ' ')} {msg}")
+
+    hoy = datetime.now()
+    anio = anio or hoy.year
+    mes  = mes  or hoy.month
+
+    log(f"Generando PDFs mensuales — {mes:02d}/{anio}", "head")
+
+    try:
+        pdfs = generar_pdfs_mensuales(
+            output_dir=output_dir,
+            anio=anio,
+            mes=mes,
+        )
+        generados = len(pdfs)
+        for p in pdfs:
+            log(f"PDF generado: {Path(p).name}", "ok")
+        log(f"Completado: {generados} PDFs mensuales generados en {Path(output_dir).resolve()}", "head")
+        return generados, 6
+    except Exception as e:
+        log(f"Error generando PDFs mensuales: {e}", "error")
+        return 0, 6
+
+
+# ── Entrada por línea de comandos ─────────────────────────────────────────────
 
 def _parse_args():
     p = argparse.ArgumentParser(
         description="Regenera PDFs de resenas a partir de un Excel existente.")
-    p.add_argument("excel",
+    p.add_argument("excel", nargs="?", default=None,
                    help="Ruta al archivo Excel (.xlsx) generado por el sistema")
     p.add_argument("--output", default="./informes",
                    help="Carpeta de salida de los PDFs (default: ./informes)")
     p.add_argument("--grupo", default=None,
                    help="Nombre exacto del grupo a regenerar (opcional; default: todos)")
+    p.add_argument("--mensuales", action="store_true",
+                   help="Genera los 6 PDFs mensuales desde historico.json en lugar del Excel")
+    p.add_argument("--anio", type=int, default=None,
+                   help="Año para los PDFs mensuales (default: año actual)")
+    p.add_argument("--mes", type=int, default=None,
+                   help="Mes para los PDFs mensuales (default: mes actual)")
     return p.parse_args()
 
 
 if __name__ == "__main__":
     args = _parse_args()
-    ok, total = regenerar_desde_excel(
-        ruta_excel=args.excel,
-        output_dir=args.output,
-        grupo_filtro=args.grupo,
-    )
+    if args.mensuales:
+        ok, total = regenerar_pdfs_mensuales(
+            output_dir=args.output,
+            anio=args.anio,
+            mes=args.mes,
+        )
+    else:
+        if not args.excel:
+            print("Error: se requiere el archivo Excel (o usar --mensuales para los PDFs mensuales).")
+            sys.exit(1)
+        ok, total = regenerar_desde_excel(
+            ruta_excel=args.excel,
+            output_dir=args.output,
+            grupo_filtro=args.grupo,
+        )
     sys.exit(0 if ok == total else 1)

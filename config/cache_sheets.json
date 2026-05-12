@@ -6,7 +6,9 @@
       "grupo": "Abasto",
       "py_id": 161520,
       "rappi_id": 129921,
-      "mp_nombre": "Tea Connection Abasto"
+      "mp_nombre": "Tea Connection Abasto",
+      "dk": false,
+      "codigo": "ABAGEAAR"
     },
     {
       "nombre": "Tea Connection Turbo Abasto",
@@ -14,7 +16,9 @@
       "grupo": "Abasto",
       "py_id": null,
       "rappi_id": 227169,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "ABAGEAAR"
     },
     {
       "nombre": "Green Eat Abasto",
@@ -22,7 +26,9 @@
       "grupo": "Abasto",
       "py_id": 54149,
       "rappi_id": 117698,
-      "mp_nombre": "Green Eat Abasto"
+      "mp_nombre": "Green Eat Abasto",
+      "dk": false,
+      "codigo": "ABAGEAAR"
     },
     {
       "nombre": "Green Eat Turbo Abasto",
@@ -30,7 +36,9 @@
       "grupo": "Abasto",
       "py_id": null,
       "rappi_id": 221084,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "ABAGEAAR"
     },
     {
       "nombre": "Las Gracias Rotisería Devoto",
@@ -38,7 +46,9 @@
       "grupo": "Asunción",
       "py_id": 595226,
       "rappi_id": 257380,
-      "mp_nombre": "Las Gracias Rotisería Devoto"
+      "mp_nombre": "Las Gracias Rotisería Devoto",
+      "dk": true,
+      "codigo": "ASUTEAAR"
     },
     {
       "nombre": "Tea Connection Asunción",
@@ -46,7 +56,9 @@
       "grupo": "Asunción",
       "py_id": 254907,
       "rappi_id": 151640,
-      "mp_nombre": "Tea Connection Asunción"
+      "mp_nombre": "Tea Connection Asunción",
+      "dk": true,
+      "codigo": "ASUTEAAR"
     },
     {
       "nombre": "Tea Connection Turbo Asunción",
@@ -54,7 +66,9 @@
       "grupo": "Asunción",
       "py_id": null,
       "rappi_id": 226204,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": true,
+      "codigo": "ASUTEAAR"
     },
     {
       "nombre": "Green Eat Asunción",
@@ -62,7 +76,9 @@
       "grupo": "Asunción",
       "py_id": 251110,
       "rappi_id": 151636,
-      "mp_nombre": "Green Eat Asunción"
+      "mp_nombre": "Green Eat Asunción",
+      "dk": true,
+      "codigo": "ASUTEAAR"
     },
     {
       "nombre": "Green Eat Turbo Asunción",
@@ -70,7 +86,9 @@
       "grupo": "Asunción",
       "py_id": null,
       "rappi_id": 226207,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": true,
+      "codigo": "ASUTEAAR"
     },
     {
       "nombre": "Las Gracias Rotisería Villa Urquiza",
@@ -78,7 +96,9 @@
       "grupo": "Ávalos",
       "py_id": 595376,
       "rappi_id": 257377,
-      "mp_nombre": "Las Gracias Rotisería Villa Urquiza"
+      "mp_nombre": "Las Gracias Rotisería Villa Urquiza",
+      "dk": false,
+      "codigo": "AVATEAAR"
     },
     {
       "nombre": "Tea Connection Ávalos",
@@ -86,7 +106,9 @@
       "grupo": "Ávalos",
       "py_id": 119045,
       "rappi_id": 111876,
-      "mp_nombre": "Tea Connection Avalos"
+      "mp_nombre": "Tea Connection Avalos",
+      "dk": false,
+      "codigo": "AVATEAAR"
     },
     {
       "nombre": "Tea Connection Turbo Ávalos",
@@ -94,7 +116,9 @@
       "grupo": "Ávalos",
       "py_id": null,
       "rappi_id": 226214,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "AVATEAAR"
     },
     {
       "nombre": "Green Eat Ávalos",
@@ -102,7 +126,9 @@
       "grupo": "Ávalos",
       "py_id": 506530,
       "rappi_id": 127690,
-      "mp_nombre": "Green Eat Avalos"
+      "mp_nombre": "Green Eat Avalos",
+      "dk": false,
+      "codigo": "AVATEAAR"
     },
     {
       "nombre": "Green Eat Turbo Ávalos",
@@ -110,7 +136,9 @@
       "grupo": "Ávalos",
       "py_id": null,
       "rappi_id": 226213,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "AVATEAAR"
     },
     {
       "nombre": "Tea Connection Bernal",
@@ -118,7 +146,9 @@
       "grupo": "Bernal",
       "py_id": 598024,
       "rappi_id": null,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": true,
+      "codigo": "CASDARAR"
     },
     {
       "nombre": "Las Gracias Rotisería Palermo",
@@ -126,7 +156,9 @@
       "grupo": "Billinghurst",
       "py_id": 595409,
       "rappi_id": 257378,
-      "mp_nombre": "Las Gracias Rotisería Palermo"
+      "mp_nombre": "Las Gracias Rotisería Palermo",
+      "dk": false,
+      "codigo": "BILGEAAR"
     },
     {
       "nombre": "Green Eat Billinghurst",
@@ -134,7 +166,9 @@
       "grupo": "Billinghurst",
       "py_id": 54150,
       "rappi_id": 117697,
-      "mp_nombre": "Green Eat Billinghurst"
+      "mp_nombre": "Green Eat Billinghurst",
+      "dk": false,
+      "codigo": "BILGEAAR"
     },
     {
       "nombre": "Green Eat Turbo Billinghurst",
@@ -142,7 +176,9 @@
       "grupo": "Billinghurst",
       "py_id": null,
       "rappi_id": 216559,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "BILGEAAR"
     },
     {
       "nombre": "Las Gracias Rotisería Belgrano",
@@ -150,7 +186,9 @@
       "grupo": "Cabildo",
       "py_id": 595347,
       "rappi_id": 257383,
-      "mp_nombre": "Las Gracias Rotisería Belgrano"
+      "mp_nombre": "Las Gracias Rotisería Belgrano",
+      "dk": false,
+      "codigo": "CABGEAAR"
     },
     {
       "nombre": "Green Eat Cabildo",
@@ -158,7 +196,9 @@
       "grupo": "Cabildo",
       "py_id": 64082,
       "rappi_id": 117696,
-      "mp_nombre": "Green Eat Cabildo"
+      "mp_nombre": "Green Eat Cabildo",
+      "dk": false,
+      "codigo": "CABGEAAR"
     },
     {
       "nombre": "Green Eat Turbo Cabildo",
@@ -166,7 +206,9 @@
       "grupo": "Cabildo",
       "py_id": null,
       "rappi_id": 219350,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "CABGEAAR"
     },
     {
       "nombre": "Tea Connection Conde",
@@ -174,7 +216,9 @@
       "grupo": "Conde",
       "py_id": 119044,
       "rappi_id": 115782,
-      "mp_nombre": "Tea Connection Conde"
+      "mp_nombre": "Tea Connection Conde",
+      "dk": false,
+      "codigo": "CONTEAAR"
     },
     {
       "nombre": "Tea Connection Turbo Conde",
@@ -182,7 +226,9 @@
       "grupo": "Conde",
       "py_id": null,
       "rappi_id": 224957,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "CONTEAAR"
     },
     {
       "nombre": "Tea Connection Dot",
@@ -190,7 +236,9 @@
       "grupo": "DOT",
       "py_id": 507619,
       "rappi_id": 226171,
-      "mp_nombre": "Tea Connection Dot"
+      "mp_nombre": "Tea Connection Dot",
+      "dk": false,
+      "codigo": "DOTGEAAR"
     },
     {
       "nombre": "Tea Connection Turbo Dot",
@@ -198,7 +246,9 @@
       "grupo": "DOT",
       "py_id": null,
       "rappi_id": 227955,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "DOTGEAAR"
     },
     {
       "nombre": "Green Eat Dot",
@@ -206,7 +256,9 @@
       "grupo": "DOT",
       "py_id": 315467,
       "rappi_id": 117700,
-      "mp_nombre": "Green Eat Dot"
+      "mp_nombre": "Green Eat Dot",
+      "dk": false,
+      "codigo": "DOTGEAAR"
     },
     {
       "nombre": "Green Eat Turbo Dot",
@@ -214,7 +266,9 @@
       "grupo": "DOT",
       "py_id": null,
       "rappi_id": 228142,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "DOTGEAAR"
     },
     {
       "nombre": "Tea Connection Flores",
@@ -222,7 +276,9 @@
       "grupo": "Flores",
       "py_id": 542867,
       "rappi_id": 238005,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": true,
+      "codigo": "RIVDARAR"
     },
     {
       "nombre": "Green Eat Flores",
@@ -230,7 +286,9 @@
       "grupo": "Flores",
       "py_id": 542865,
       "rappi_id": 237979,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": true,
+      "codigo": "RIVDARAR"
     },
     {
       "nombre": "Green Eat Florida",
@@ -238,7 +296,9 @@
       "grupo": "Florida",
       "py_id": 195164,
       "rappi_id": 237979,
-      "mp_nombre": "Green Eat Florida"
+      "mp_nombre": "Green Eat Florida",
+      "dk": false,
+      "codigo": "FLOGEAAR"
     },
     {
       "nombre": "Green Eat Turbo Florida",
@@ -246,7 +306,9 @@
       "grupo": "Florida",
       "py_id": null,
       "rappi_id": 220481,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "FLOGEAAR"
     },
     {
       "nombre": "Las Gracias Rotisería Caballito",
@@ -254,7 +316,9 @@
       "grupo": "Formosa",
       "py_id": 595293,
       "rappi_id": 257366,
-      "mp_nombre": "Las Gracias Rotesería Caballito"
+      "mp_nombre": "Las Gracias Rotesería Caballito",
+      "dk": false,
+      "codigo": "FORTEAAR"
     },
     {
       "nombre": "Tea Connection Formosa",
@@ -262,7 +326,9 @@
       "grupo": "Formosa",
       "py_id": 119041,
       "rappi_id": 111875,
-      "mp_nombre": "Tea Connection Formosa"
+      "mp_nombre": "Tea Connection Formosa",
+      "dk": false,
+      "codigo": "FORTEAAR"
     },
     {
       "nombre": "Tea Connection Turbo Formosa",
@@ -270,7 +336,9 @@
       "grupo": "Formosa",
       "py_id": null,
       "rappi_id": 222963,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "FORTEAAR"
     },
     {
       "nombre": "Tea Connection Gorostiaga",
@@ -278,7 +346,9 @@
       "grupo": "Gorostiaga",
       "py_id": 119043,
       "rappi_id": 111094,
-      "mp_nombre": "Tea Connection Gorostiaga"
+      "mp_nombre": "Tea Connection Gorostiaga",
+      "dk": false,
+      "codigo": "GORTEAAR"
     },
     {
       "nombre": "Tea Connection Turbo Gorostiaga",
@@ -286,7 +356,9 @@
       "grupo": "Gorostiaga",
       "py_id": null,
       "rappi_id": 226155,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "GORTEAAR"
     },
     {
       "nombre": "Green Eat La Plata",
@@ -294,7 +366,9 @@
       "grupo": "La Plata",
       "py_id": 578459,
       "rappi_id": null,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": true,
+      "codigo": "L12DARAR"
     },
     {
       "nombre": "Tea Connection La Plata",
@@ -302,7 +376,9 @@
       "grupo": "La Plata",
       "py_id": 578466,
       "rappi_id": null,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": true,
+      "codigo": "L12DARAR"
     },
     {
       "nombre": "Tea Connection Lacroze",
@@ -310,7 +386,9 @@
       "grupo": "Lacroze",
       "py_id": 226,
       "rappi_id": 116438,
-      "mp_nombre": "Tea Connection Lacroze"
+      "mp_nombre": "Tea Connection Lacroze",
+      "dk": false,
+      "codigo": "LACTEAAR"
     },
     {
       "nombre": "Tea Connection Turbo Lacroze",
@@ -318,7 +396,9 @@
       "grupo": "Lacroze",
       "py_id": null,
       "rappi_id": 222964,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "LACTEAAR"
     },
     {
       "nombre": "Tea Connection Libertador",
@@ -326,7 +406,9 @@
       "grupo": "Libertador",
       "py_id": 129017,
       "rappi_id": 122879,
-      "mp_nombre": "Tea Connection Libertador"
+      "mp_nombre": "Tea Connection Libertador",
+      "dk": false,
+      "codigo": "LIBTEAAR"
     },
     {
       "nombre": "Tea Connection Turbo Libertador",
@@ -334,7 +416,9 @@
       "grupo": "Libertador",
       "py_id": null,
       "rappi_id": 225113,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "LIBTEAAR"
     },
     {
       "nombre": "Green Eat Libertador",
@@ -342,7 +426,9 @@
       "grupo": "Libertador",
       "py_id": 149209,
       "rappi_id": 127651,
-      "mp_nombre": "Green Eat Libertador"
+      "mp_nombre": "Green Eat Libertador",
+      "dk": false,
+      "codigo": "LIBTEAAR"
     },
     {
       "nombre": "Green Eat Turbo Libertador",
@@ -350,7 +436,9 @@
       "grupo": "Libertador",
       "py_id": null,
       "rappi_id": 226206,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "LIBTEAAR"
     },
     {
       "nombre": "Tea Connection Lomitas",
@@ -358,7 +446,9 @@
       "grupo": "Lomitas",
       "py_id": 135583,
       "rappi_id": null,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": true,
+      "codigo": "LOMDARAR"
     },
     {
       "nombre": "Green Eat Lomitas",
@@ -366,7 +456,9 @@
       "grupo": "Lomitas",
       "py_id": 153814,
       "rappi_id": null,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": true,
+      "codigo": "LOMDARAR"
     },
     {
       "nombre": "Las Gracias Rotisería Martinez",
@@ -374,7 +466,9 @@
       "grupo": "Martinez",
       "py_id": 595268,
       "rappi_id": 257381,
-      "mp_nombre": "Las Gracias Rotisería Martinez"
+      "mp_nombre": "Las Gracias Rotisería Martinez",
+      "dk": false,
+      "codigo": "PAUTEAAR"
     },
     {
       "nombre": "Green Eat Martinez",
@@ -382,7 +476,9 @@
       "grupo": "Martinez",
       "py_id": 166089,
       "rappi_id": null,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "PAUTEAAR"
     },
     {
       "nombre": "Tea Connection Martinez",
@@ -390,7 +486,9 @@
       "grupo": "Martinez",
       "py_id": 119091,
       "rappi_id": null,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "PAUTEAAR"
     },
     {
       "nombre": "Tea Connection Montevideo",
@@ -398,7 +496,9 @@
       "grupo": "Montevideo",
       "py_id": 223,
       "rappi_id": 114239,
-      "mp_nombre": "Tea Connection Montevideo"
+      "mp_nombre": "Tea Connection Montevideo",
+      "dk": false,
+      "codigo": "MONTEAAR"
     },
     {
       "nombre": "Tea Connection Turbo Montevideo",
@@ -406,7 +506,9 @@
       "grupo": "Montevideo",
       "py_id": null,
       "rappi_id": 222969,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "MONTEAAR"
     },
     {
       "nombre": "Tea Connection Nordelta",
@@ -414,7 +516,9 @@
       "grupo": "Nordelta",
       "py_id": 450370,
       "rappi_id": null,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "NORTEAAR"
     },
     {
       "nombre": "Green Eat Nordelta",
@@ -422,7 +526,9 @@
       "grupo": "Nordelta",
       "py_id": 483694,
       "rappi_id": null,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "NORTEAAR"
     },
     {
       "nombre": "Green Eat Oroño",
@@ -430,7 +536,9 @@
       "grupo": "Oroño",
       "py_id": 328904,
       "rappi_id": null,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "OROTEAAR"
     },
     {
       "nombre": "Tea Connection Oroño",
@@ -438,7 +546,9 @@
       "grupo": "Oroño",
       "py_id": 327690,
       "rappi_id": null,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "OROTEAAR"
     },
     {
       "nombre": "Tea Connection Puerto Madero",
@@ -446,7 +556,9 @@
       "grupo": "Puerto Madero",
       "py_id": 545208,
       "rappi_id": 237996,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": true,
+      "codigo": "PTOPARAR"
     },
     {
       "nombre": "Tea Connection Turbo Pueyrredón",
@@ -454,7 +566,9 @@
       "grupo": "Pueyrredon",
       "py_id": null,
       "rappi_id": 228145,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "PUEGEAAR"
     },
     {
       "nombre": "Green Eat Pueyrredón",
@@ -462,7 +576,9 @@
       "grupo": "Pueyrredon",
       "py_id": null,
       "rappi_id": null,
-      "mp_nombre": "Green Eat Pueyrredon"
+      "mp_nombre": "Green Eat Pueyrredon",
+      "dk": false,
+      "codigo": "PUEGEAAR"
     },
     {
       "nombre": "Green Eat Turbo Pueyrredón",
@@ -470,7 +586,9 @@
       "grupo": "Pueyrredon",
       "py_id": null,
       "rappi_id": 226607,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "PUEGEAAR"
     },
     {
       "nombre": "Green Eat Rivadavia",
@@ -478,7 +596,9 @@
       "grupo": "Rivadavia",
       "py_id": 54153,
       "rappi_id": 117699,
-      "mp_nombre": "Green Eat Rivadavia"
+      "mp_nombre": "Green Eat Rivadavia",
+      "dk": false,
+      "codigo": "RIVGEAAR"
     },
     {
       "nombre": "Green Eat Turbo Rivadavia",
@@ -486,7 +606,9 @@
       "grupo": "Rivadavia",
       "py_id": null,
       "rappi_id": 219368,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "RIVGEAAR"
     },
     {
       "nombre": "Green Eat Roca",
@@ -494,7 +616,9 @@
       "grupo": "Roca",
       "py_id": 585056,
       "rappi_id": null,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "ROCGEAAR"
     },
     {
       "nombre": "Tea Connection Roca",
@@ -502,7 +626,9 @@
       "grupo": "Roca",
       "py_id": 584688,
       "rappi_id": null,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "ROCGEAAR"
     },
     {
       "nombre": "Tea Connection San Martin",
@@ -510,7 +636,9 @@
       "grupo": "San Martin",
       "py_id": 568144,
       "rappi_id": null,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": true,
+      "codigo": "MATDARAR"
     },
     {
       "nombre": "Green Eat San Martin",
@@ -518,7 +646,9 @@
       "grupo": "San Martin",
       "py_id": 567892,
       "rappi_id": null,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": true,
+      "codigo": "MATDARAR"
     },
     {
       "nombre": "Las Gracias Rotisería Recoleta",
@@ -526,7 +656,9 @@
       "grupo": "Santa Fe",
       "py_id": 595511,
       "rappi_id": 257382,
-      "mp_nombre": "Las Gracias Rotisería Recoleta"
+      "mp_nombre": "Las Gracias Rotisería Recoleta",
+      "dk": false,
+      "codigo": "SFEGEAAR"
     },
     {
       "nombre": "Green Eat Santa Fe",
@@ -534,7 +666,9 @@
       "grupo": "Santa Fe",
       "py_id": 54151,
       "rappi_id": 121087,
-      "mp_nombre": "Green Eat Santa Fe"
+      "mp_nombre": "Green Eat Santa Fe",
+      "dk": false,
+      "codigo": "SFEGEAAR"
     },
     {
       "nombre": "Green Eat Turbo Santa Fe",
@@ -542,7 +676,9 @@
       "grupo": "Santa Fe",
       "py_id": null,
       "rappi_id": 220813,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "SFEGEAAR"
     },
     {
       "nombre": "Tea Connection Scalabrini",
@@ -550,7 +686,9 @@
       "grupo": "Scalabrini",
       "py_id": 135030,
       "rappi_id": 125382,
-      "mp_nombre": "Tea Connection Scalabrini"
+      "mp_nombre": "Tea Connection Scalabrini",
+      "dk": false,
+      "codigo": "SCATEAAR"
     },
     {
       "nombre": "Tea Connection Turbo Scalabrini",
@@ -558,7 +696,9 @@
       "grupo": "Scalabrini",
       "py_id": null,
       "rappi_id": 223109,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "SCATEAAR"
     },
     {
       "nombre": "Tea Connection Sinclair",
@@ -566,7 +706,9 @@
       "grupo": "Sinclair",
       "py_id": 119042,
       "rappi_id": 111105,
-      "mp_nombre": "Tea Connection Sinclair"
+      "mp_nombre": "Tea Connection Sinclair",
+      "dk": false,
+      "codigo": "SINTEAAR"
     },
     {
       "nombre": "Tea Connection Turbo Sinclair",
@@ -574,7 +716,9 @@
       "grupo": "Sinclair",
       "py_id": null,
       "rappi_id": 223014,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "SINTEAAR"
     },
     {
       "nombre": "Green Eat Sinclair",
@@ -582,7 +726,9 @@
       "grupo": "Sinclair",
       "py_id": 253624,
       "rappi_id": 151528,
-      "mp_nombre": "Green Eat Sinclair"
+      "mp_nombre": "Green Eat Sinclair",
+      "dk": false,
+      "codigo": "SINTEAAR"
     },
     {
       "nombre": "Green Eat Turbo Sinclair",
@@ -590,7 +736,9 @@
       "grupo": "Sinclair",
       "py_id": null,
       "rappi_id": 225112,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "SINTEAAR"
     },
     {
       "nombre": "Green Eat Terrazas De Mayo",
@@ -598,7 +746,9 @@
       "grupo": "Terrazas De Mayo",
       "py_id": 585359,
       "rappi_id": null,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": true,
+      "codigo": "SANDARAR"
     },
     {
       "nombre": "Tea Connection Terrazas De Mayo",
@@ -606,7 +756,9 @@
       "grupo": "Terrazas De Mayo",
       "py_id": 585156,
       "rappi_id": null,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": true,
+      "codigo": "SANDARAR"
     },
     {
       "nombre": "Green Eat Unicenter",
@@ -614,7 +766,9 @@
       "grupo": "Unicenter GE",
       "py_id": 55637,
       "rappi_id": null,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "UNIGEAAR"
     },
     {
       "nombre": "Tea Connection Unicenter",
@@ -622,7 +776,9 @@
       "grupo": "Unicenter TEA",
       "py_id": 136764,
       "rappi_id": null,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "UNITEAAR"
     },
     {
       "nombre": "Tea Connection Uriburu",
@@ -630,7 +786,9 @@
       "grupo": "Uriburu",
       "py_id": 160447,
       "rappi_id": 111294,
-      "mp_nombre": "Tea Connection Uriburu"
+      "mp_nombre": "Tea Connection Uriburu",
+      "dk": false,
+      "codigo": "URITEAAR"
     },
     {
       "nombre": "Tea Connection Turbo Uriburu",
@@ -638,7 +796,9 @@
       "grupo": "Uriburu",
       "py_id": null,
       "rappi_id": 224951,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "URITEAAR"
     },
     {
       "nombre": "Tea Connection Villa Luro",
@@ -646,7 +806,9 @@
       "grupo": "Villa Luro",
       "py_id": 546270,
       "rappi_id": 238481,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": true,
+      "codigo": "JBJDARAR"
     },
     {
       "nombre": "Green Eat Villa Luro",
@@ -654,7 +816,9 @@
       "grupo": "Villa Luro",
       "py_id": 546437,
       "rappi_id": 238477,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": true,
+      "codigo": "JBJDARAR"
     },
     {
       "nombre": "Tea Connection Vuelta De Obligado",
@@ -662,7 +826,9 @@
       "grupo": "Vuelta de Obligado",
       "py_id": 320846,
       "rappi_id": 117038,
-      "mp_nombre": "Tea Connection Belgrano"
+      "mp_nombre": "Tea Connection Belgrano",
+      "dk": false,
+      "codigo": "VUETEAAR"
     },
     {
       "nombre": "Tea Connection Turbo Vuelta de Obligado",
@@ -670,10 +836,62 @@
       "grupo": "Vuelta de Obligado",
       "py_id": null,
       "rappi_id": 226210,
-      "mp_nombre": null
+      "mp_nombre": null,
+      "dk": false,
+      "codigo": "VUETEAAR"
+    },
+    {
+      "nombre": "Green Eat Quilmes",
+      "marca": "Green Eat",
+      "grupo": "Quilmes",
+      "py_id": 604886,
+      "rappi_id": null,
+      "mp_nombre": null,
+      "dk": true,
+      "codigo": "GARDARAR"
+    },
+    {
+      "nombre": "Green Eat Bernal",
+      "marca": "Green Eat",
+      "grupo": "Bernal",
+      "py_id": 598025,
+      "rappi_id": null,
+      "mp_nombre": null,
+      "dk": true,
+      "codigo": "CASDARAR"
+    },
+    {
+      "nombre": "Tea Connection Quilmes",
+      "marca": "Tea Connection",
+      "grupo": "Quilmes",
+      "py_id": 607672,
+      "rappi_id": null,
+      "mp_nombre": null,
+      "dk": true,
+      "codigo": "GARDARAR"
+    },
+    {
+      "nombre": "Green Eat Castelar",
+      "marca": "Green Eat",
+      "grupo": "Castelar",
+      "py_id": 605205,
+      "rappi_id": null,
+      "mp_nombre": null,
+      "dk": true,
+      "codigo": null
+    },
+    {
+      "nombre": "Tea Connection Castelar",
+      "marca": "Tea Connection",
+      "grupo": "Castelar",
+      "py_id": 605212,
+      "rappi_id": null,
+      "mp_nombre": null,
+      "dk": true,
+      "codigo": null
     }
   ],
-  "ultima_actualizacion": "2026-04-29T15:41:09",
+  "ultima_actualizacion": "2026-05-11T22:59:10",
   "keywords": [
     "agria",
     "agrio",

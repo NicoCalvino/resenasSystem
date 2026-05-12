@@ -184,7 +184,8 @@ def parsear_reclamos_peya_webhook(
 
     def _parsear_fecha_reclamo(fecha_str: str, hora_str: str, fila: int):
         fecha_hora_str = f"{fecha_str} {hora_str}".strip() if hora_str else fecha_str
-        for fmt in ("%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%Y",
+        for fmt in ("%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M", "%m/%d/%Y",
+                    "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%Y",
                     "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
             try:
                 return datetime.strptime(fecha_hora_str, fmt)
@@ -341,100 +342,6 @@ def api_resenas_peya(token: str, vendor_codes: list[str],
 
 # ── API TOTALES (browser) ─────────────────────────────────────────────────────
 
-def _fetch_performance_con_token(token: str, vendor_codes: list[str],
-                                  desde: datetime, hasta: datetime) -> int:
-    """
-    Llama directamente a la API de performance de PedidosYa con el token ya
-    disponible (sin necesitar el browser). Misma lógica que
-    _fetch_performance_desde_browser pero vía requests.
-    """
-    body = {
-        "global_vendor_codes": vendor_codes,
-        "from":      desde.strftime("%Y-%m-%d"),
-        "to":        hasta.strftime("%Y-%m-%d"),
-        "precision": "DAY",
-    }
-    try:
-        r = requests.post(PERF_URL, headers=_h(token), json=body, timeout=60)
-        if r.status_code != 200:
-            logger.warning(f"PedidosYa perf token: status={r.status_code}")
-            return 0
-        data = r.json().get("data", [])
-        if isinstance(data, list):
-            return sum(int(item.get("orderCount", 0)) for item in data)
-    except Exception as e:
-        logger.warning(f"PedidosYa perf token: {e}")
-    return 0
-
-
-def _calcular_totales_marca_con_token(
-    token: str,
-    grupos: list[str],
-    desde: datetime,
-    hasta: datetime,
-) -> dict[str, dict[str, int]]:
-    """
-    Calcula totales por marca para cada grupo usando el token directamente,
-    sin necesidad del browser. Útil en el path con PEYA_TOTALES.
-    """
-    import time as _time
-    resultado: dict[str, dict[str, int]] = {}
-    for grupo in grupos:
-        marcas_vc: dict[str, list[str]] = {}
-        for t in TIENDAS:
-            if t["grupo"] == grupo and t["py_id"]:
-                marcas_vc.setdefault(t["marca"], []).append(f"PY_AR;{t['py_id']}")
-        totales_marca: dict[str, int] = {}
-        for marca, vc in marcas_vc.items():
-            totales_marca[marca] = _fetch_performance_con_token(token, vc, desde, hasta)
-            _time.sleep(0.3)
-        resultado[grupo] = totales_marca
-        logger.info(f"PedidosYa totales por marca '{grupo}': {totales_marca}")
-    return resultado
-
-
-async def _fetch_performance_desde_browser(page, vendor_codes: list[str],
-                                            desde: datetime, hasta: datetime) -> int:
-    body = {
-        "global_vendor_codes": vendor_codes,
-        "from":      desde.strftime("%Y-%m-%d"),
-        "to":        hasta.strftime("%Y-%m-%d"),
-        "precision": "DAY",
-    }
-    import json as _json
-    body_str = _json.dumps(body)
-    result = await page.evaluate(f"""
-        async () => {{
-            try {{
-                const r = await fetch('{PERF_URL}', {{
-                    method: 'POST',
-                    headers: {{
-                        'Content-Type': 'application/json',
-                        'Authorization': (() => {{
-                            const root = localStorage.getItem('persist:root');
-                            const auth = JSON.parse(JSON.parse(root).authentication);
-                            return 'Bearer ' + auth.accessToken;
-                        }})()
-                    }},
-                    body: JSON.stringify({_json.loads(body_str)})
-                }});
-                const data = await r.json();
-                return {{ status: r.status, data: data }};
-            }} catch(e) {{
-                return {{ status: 0, error: e.toString() }};
-            }}
-        }}
-    """)
-    if not result or result.get("status") != 200:
-        logger.warning(f"PedidosYa perf browser: status={result.get('status')} error={result.get('error','')}")
-        return 0
-    data = result.get("data", {}).get("data", [])
-    if isinstance(data, list):
-        return sum(int(item.get("orderCount", 0)) for item in data)
-    return 0
-
-
-# ── CONVERSIÓN ────────────────────────────────────────────────────────────────
 _TAG_TRADUCCION = {
     "SMALL_PORTION_SIZE":    "PORCIÓN REDUCIDA",
     "LOW_QUALITY":           "PROBLEMAS DE CALIDAD",
@@ -521,48 +428,6 @@ def convertir_peya(raw: list[dict]) -> list[Resena]:
 
 
 
-async def _calcular_totales_por_tienda_browser(
-    page,
-    grupos: list[str],
-    desde: datetime,
-    hasta: datetime,
-) -> tuple[dict[str, int], dict[str, dict[str, int]]]:
-    """
-    Hace UNA llamada a la API por cada tienda individual de los grupos pedidos,
-    y agrega los resultados en dos diccionarios:
-      - totales_grupo:       { grupo -> total_ordenes }
-      - totales_marca_grupo: { grupo -> { marca -> total_ordenes } }
-
-    Ventaja respecto al enfoque anterior: una sola pasada sirve para ambos
-    totales, sin llamadas duplicadas por marca.
-    """
-    totales_grupo:       dict[str, int]            = {}
-    totales_marca_grupo: dict[str, dict[str, int]] = {}
-
-    for t in TIENDAS:
-        if t["grupo"] not in grupos or not t["py_id"]:
-            continue
-        grupo = t["grupo"]
-        marca = t["marca"]
-        vc    = [f"PY_AR;{t['py_id']}"]
-        total = await _fetch_performance_desde_browser(page, vc, desde, hasta)
-        logger.info(f"PedidosYa totales tienda '{t['nombre']}': {total} órdenes")
-
-        totales_grupo[grupo] = totales_grupo.get(grupo, 0) + total
-
-        if grupo not in totales_marca_grupo:
-            totales_marca_grupo[grupo] = {}
-        totales_marca_grupo[grupo][marca] = (
-            totales_marca_grupo[grupo].get(marca, 0) + total
-        )
-
-    for g in grupos:
-        logger.info(f"PedidosYa totales '{g}': {totales_grupo.get(g, 0)} órdenes  |  por marca: {totales_marca_grupo.get(g, {})}")
-
-    return totales_grupo, totales_marca_grupo
-
-
-# ── FLUJO COMPLETO ────────────────────────────────────────────────────────────
 async def extraer_pedidosya(desde: datetime, hasta: Optional[datetime] = None,
                              headless: bool = False
                              ) -> tuple[list[Resena], list, dict[str, int], dict[str, dict[str, int]]]:
@@ -588,61 +453,8 @@ async def extraer_pedidosya(desde: datetime, hasta: Optional[datetime] = None,
         if not resenas:
             logger.info("PedidosYa: sin reseñas en el período")
 
-        # Siempre obtener totales para TODOS los grupos configurados, no solo
-        # los que tuvieron reseñas negativas (un grupo puede tener ordenes pero
-        # no tener reseñas negativas en el periodo)
-        todos_grupos_peya = sorted(set(t["grupo"] for t in TIENDAS if t.get("py_id")))
-        grupos_con_datos  = list({r.local_id for r in resenas})  # solo para logs
-
-        # Prioridad 1: totales pre-calculados por el helper (early return)
-        totales_env = os.environ.get("PEYA_TOTALES", "").strip()
-        if totales_env:
-            import json as _json
-            try:
-                totales_pre = _json.loads(totales_env)
-                totales = {g: totales_pre.get(g, 0) for g in todos_grupos_peya}
-                logger.info(f"PedidosYa: totales del helper para {len(totales)} grupos")
-                for g, n in totales.items():
-                    logger.info(f"PedidosYa totales '{g}': {n} órdenes")
-                # Totales por marca — provistos por el helper desde PEYA_TOTALES_MARCA
-                totales_marca: dict[str, dict[str, int]] = {}
-                totales_marca_env = os.environ.get("PEYA_TOTALES_MARCA", "").strip()
-                if totales_marca_env:
-                    try:
-                        totales_marca = _json.loads(totales_marca_env)
-                        logger.info("PedidosYa: totales por marca cargados del helper")
-                    except Exception as e2:
-                        logger.warning(f"PedidosYa: error leyendo PEYA_TOTALES_MARCA — {e2}")
-                else:
-                    logger.info("PedidosYa: totales por marca no disponibles en path token")
-                return resenas, [], totales, totales_marca
-            except Exception as e:
-                logger.warning(f"PedidosYa: error leyendo PEYA_TOTALES — {e}")
-
-        # Prioridad 2: browser con storage_state para totales
-        totales = {}
-        state_file = os.environ.get("PEYA_STATE_FILE", "")
-        ctx_kwargs = dict(
-            viewport={"width": 1280, "height": 800}, locale="es-AR",
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        )
-        if state_file and Path(state_file).exists():
-            ctx_kwargs["storage_state"] = state_file
-            logger.info("PedidosYa totales: restaurando estado del browser")
-        else:
-            logger.warning("PedidosYa totales: sin estado guardado — puede dar 403")
-
-        async with async_playwright() as pw:
-            browser = await pw.chromium.launch(
-                headless=True, slow_mo=200,
-                args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
-            page = await (await browser.new_context(**ctx_kwargs)).new_page()
-            await page.goto("https://portal-app.pedidosya.com", wait_until="domcontentloaded")
-            totales, totales_marca = await _calcular_totales_por_tienda_browser(
-                page, todos_grupos_peya, desde, hasta)
-            await browser.close()
-
-        return resenas, [], totales, totales_marca
+        # Los totales de órdenes se obtienen del Google Sheets de pedidos
+        return resenas, [], {}, {}
 
     else:
         # Sin token en entorno — flujo manual (consola sin GUI)
@@ -686,11 +498,9 @@ async def extraer_pedidosya(desde: datetime, hasta: Optional[datetime] = None,
             if not resenas:
                 logger.info("PedidosYa: sin reseñas en el período")
 
-            todos_grupos_peya = sorted(set(t["grupo"] for t in TIENDAS if t.get("py_id")))
-            totales, totales_marca = await _calcular_totales_por_tienda_browser(
-                page, todos_grupos_peya, desde, hasta)
             await browser.close()
-        return resenas, [], totales, totales_marca
+        # Los totales de órdenes se obtienen del Google Sheets de pedidos
+        return resenas, [], {}, {}
 
 
 # ── Test standalone ─────────────

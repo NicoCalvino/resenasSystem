@@ -31,9 +31,11 @@ from extractors.pedidosya    import (extraer_pedidosya,
 from extractors.mercadopago  import (parsear_csv_ml, encontrar_csv_mas_reciente,
                                      parsear_totales_ml, encontrar_csv_totales,
                                      descargar_reclamos_desde_webhook)
+from extractors.pedidos_sheets import calcular_totales_desde_sheets
 from processor.procesador   import Procesador
-from report.generador_pdf   import build_report
-from report.generador_excel import generar_excel
+from report.generador_pdf         import build_report
+from report.generador_excel       import generar_excel
+from report.generador_pdf_mensual import generar_pdfs_mensuales
 from config.models          import ResumenLocal
 
 load_dotenv()
@@ -57,6 +59,8 @@ def parse_args():
     p.add_argument("--skip-rappi",    action="store_true", help="Omitir extracción de Rappi")
     p.add_argument("--skip-peya",     action="store_true", help="Omitir extracción de PedidosYa")
     p.add_argument("--skip-ml",       action="store_true", help="Omitir extracción de Mercado Libre")
+    p.add_argument("--skip-pdf",      action="store_true", help="Omitir generación de PDFs")
+    p.add_argument("--skip-excel",    action="store_true", help="Omitir generación de Excel")
     p.add_argument("--headless", default="true", help="true/false — mostrar browser")
     p.add_argument("--solo-pdf", default=None, help="Generar PDF de prueba sin extracción (grupo)")
     p.add_argument("--output",   default="./informes", help="Carpeta de salida de PDFs")
@@ -93,37 +97,52 @@ async def main():
     # Totales por marca dentro de cada grupo: { grupo → { marca → ordenes } }
     totales_marca_por_grupo: dict[str, dict[str, int]] = {}
 
+    # ── totales desde Google Sheets de pedidos ────────────────────────────────
+    # Los totales de pedidos ya NO se extraen de las APIs de Rappi/PedidosYa;
+    # se obtienen de la tabla centralizada de pedidos en Google Sheets.
+    logger.info("── Calculando totales desde Google Sheets de pedidos...")
+    try:
+        totales_grupo, totales_marca_por_grupo, _tots_plat = \
+            calcular_totales_desde_sheets(fecha_desde, fecha_hasta)
+        # Distribuir en los contadores por plataforma para el Excel
+        for plat, grupos in _tots_plat.items():
+            plat_l = plat.lower()
+            if "rappi" in plat_l:
+                for g, n in grupos.items():
+                    totales_rappi[g] = totales_rappi.get(g, 0) + n
+            elif "pedidos" in plat_l or "peya" in plat_l:
+                for g, n in grupos.items():
+                    totales_peya[g] = totales_peya.get(g, 0) + n
+            elif "mercado" in plat_l or "ml" in plat_l:
+                for g, n in grupos.items():
+                    totales_ml[g] = totales_ml.get(g, 0) + n
+    except Exception as e:
+        logger.error(f"Totales desde Sheets falló: {e}")
+
     # — PedidosYa
     if args.skip_peya:
         logger.info("── PedidosYa: omitido (desactivado desde la GUI)")
     else:
         logger.info("── Extrayendo PedidosYa...")
         try:
-            rs, rcs, tots, tots_marca = await extraer_pedidosya(fecha_desde, fecha_hasta)
+            rs, rcs, _tots_peya, _tots_marca_peya = await extraer_pedidosya(fecha_desde, fecha_hasta)
             todas_resenas.extend(rs)
             todos_reclamos.extend(rcs)
-            for g, n in tots.items():
-                totales_grupo[g] = totales_grupo.get(g, 0) + n
-                totales_peya[g] = totales_peya.get(g, 0) + n
-            for g, marcas in tots_marca.items():
-                if g not in totales_marca_por_grupo:
-                    totales_marca_por_grupo[g] = {}
-                for marca, n in marcas.items():
-                    totales_marca_por_grupo[g][marca] = totales_marca_por_grupo[g].get(marca, 0) + n
+            # Los totales de PedidosYa se ignoran: los totales vienen de Google Sheets
             logger.info(f"PedidosYa: {len(rs)} reseñas negativas, {len(rcs)} reclamos")
         except Exception as e:
             logger.error(f"PedidosYa falló: {e}")
 
-        # — Reclamos PedidosYa (via webhook n8n)
+        # — Reclamos PedidosYa (via Google Sheets publicado como CSV)
         ruta_peya_reclamos = args.peya_reclamos or os.environ.get("PEYA_RECLAMOS_CSV")
         if not ruta_peya_reclamos:
             webhook_peya = os.environ.get("PEYA_RECLAMOS_WEBHOOK", "").strip().strip('"').strip("'")
             if webhook_peya:
-                logger.info("── Descargando reclamos PedidosYa desde webhook Apps Script...")
+                logger.info("── Descargando reclamos PedidosYa desde Google Sheets...")
                 try:
                     ruta_peya_reclamos = descargar_reclamos_peya_webhook(webhook_peya)
                 except Exception as e:
-                    logger.error(f"PedidosYa reclamos: descarga desde webhook falló: {e}")
+                    logger.error(f"PedidosYa reclamos: descarga desde Google Sheets falló: {e}")
 
         if ruta_peya_reclamos:
             logger.info(f"── Procesando CSV reclamos PedidosYa: {ruta_peya_reclamos}")
@@ -146,18 +165,11 @@ async def main():
         if rappi_email and rappi_password:
             logger.info("── Extrayendo Rappi...")
             try:
-                rs, rcs, tots, tots_marca = await extraer_rappi(
+                rs, rcs, _tots_rappi, _tots_marca_rappi = await extraer_rappi(
                     rappi_email, rappi_password, fecha_desde, fecha_hasta, headless)
                 todas_resenas.extend(rs)
                 todos_reclamos.extend(rcs)
-                for g, n in tots.items():
-                    totales_grupo[g] = totales_grupo.get(g, 0) + n
-                    totales_rappi[g] = totales_rappi.get(g, 0) + n
-                for g, marcas in tots_marca.items():
-                    if g not in totales_marca_por_grupo:
-                        totales_marca_por_grupo[g] = {}
-                    for marca, n in marcas.items():
-                        totales_marca_por_grupo[g][marca] = totales_marca_por_grupo[g].get(marca, 0) + n
+                # Los totales de Rappi se ignoran: los totales vienen de Google Sheets
                 logger.info(f"Rappi: {len(rs)} reseñas negativas, {len(rcs)} reclamos")
                 logger.info("Rappi: extraccion completada OK")
             except Exception as e:
@@ -208,32 +220,28 @@ async def main():
             logger.info("Mercado Libre: no se proporcionó CSV de reclamos — omitiendo")
             logger.info("  → Configurá ML_RECLAMOS_WEBHOOK en .env o usá --ml-reclamos /ruta/archivo.csv")
 
-    # Totales ML (segundo CSV del Looker)
-    ruta_ml_totales = args.mp_totales or encontrar_csv_totales("./mercadopago")
-    if ruta_ml_totales:
-        logger.info(f"── Procesando CSV Mercado Libre (totales): {ruta_ml_totales}")
-        try:
-            tots_ml, tots_marca_ml = parsear_totales_ml(ruta_ml_totales)
-            for g, n in tots_ml.items():
-                totales_grupo[g] = totales_grupo.get(g, 0) + n
-                totales_ml[g]    = tots_ml.get(g, 0)
-            for g, marcas in tots_marca_ml.items():
-                if g not in totales_marca_por_grupo:
-                    totales_marca_por_grupo[g] = {}
-                for marca, n in marcas.items():
-                    totales_marca_por_grupo[g][marca] = totales_marca_por_grupo[g].get(marca, 0) + n
-            logger.info(f"Mercado Libre: totales cargados para {len(tots_ml)} grupos")
-        except Exception as e:
-            logger.error(f"Mercado Libre CSV totales falló: {e}")
-    else:
-        logger.info("Mercado Libre: no se encontró CSV de totales — omitiendo")
-        logger.info("  → Colocá el CSV con 'total' en el nombre en ./mercadopago/")
+    # Totales ML (CSV del Looker) — ya no se usan: los totales vienen de Google Sheets.
+    # Se mantiene el código comentado por si se necesita en el futuro.
+    # ruta_ml_totales = args.mp_totales or encontrar_csv_totales("./mercadopago")
+    # if ruta_ml_totales: ...
+    logger.info("Mercado Libre: totales omitidos (se usan los de Google Sheets de pedidos)")
 
     if not todas_resenas:
         logger.warning("Sin reseñas para procesar. Verificar credenciales y fechas.")
         return
 
     logger.info(f"\nTotal reseñas negativas: {len(todas_resenas)}")
+
+    # ── histórico de reclamos ──────────────────────────────────────────────────
+    logger.info("── Registrando histórico de reclamos...")
+    try:
+        from config.historico import registrar_ejecucion
+        registrar_ejecucion(
+            reclamos=todos_reclamos,
+            fecha_ejecucion=fecha_hasta,
+        )
+    except Exception as e:
+        logger.error(f"Histórico: error inesperado: {e}")
 
     # ── procesamiento ──────────────────────────────────────────────────────────
     logger.info("── Procesando...")
@@ -242,58 +250,82 @@ async def main():
         todas_resenas, totales_grupo, fecha_desde, fecha_hasta)
 
     # ── generación de PDFs ─────────────────────────────────────────────────────
-    logger.info(f"── Generando {len(resumenes)} PDFs...")
     fecha_str = fecha_hasta.strftime("%Y-%m-%d")
     pdfs_generados = []
 
-    # Mapa reclamos por local para lookup rápido en el loop de PDFs
-    reclamos_por_local: dict[str, list] = {}
-    for rc in todos_reclamos:
-        reclamos_por_local.setdefault(rc.local_id, []).append(rc)
+    if args.skip_pdf:
+        logger.info("── Generación de PDFs omitida (--skip-pdf)")
+    else:
+        logger.info(f"── Generando {len(resumenes)} PDFs...")
 
-    for resumen in resumenes:
-        nombre_archivo = f"{resumen.local_nombre}_{fecha_str}.pdf"
-        # limpiar caracteres no válidos para nombres de archivo
-        nombre_archivo = "".join(
-            c if c.isalnum() or c in "._- " else "_" for c in nombre_archivo)
-        ruta_pdf = output_dir / nombre_archivo
+        # Mapa reclamos por local para lookup rápido en el loop de PDFs
+        reclamos_por_local: dict[str, list] = {}
+        for rc in todos_reclamos:
+            reclamos_por_local.setdefault(rc.local_id, []).append(rc)
 
-        # adaptar ResumenLocal al formato que espera generador_pdf
-        data = {
-            "local":              resumen.local_nombre,
-            "fecha":              f"{fecha_hasta.day}/{fecha_hasta.month}/{fecha_hasta.year}",
-            "total_ordenes":      resumen.total_ordenes,
-            "resenas_negativas":  resumen.resenas_negativas,
-            "errores_graves":     resumen.errores_graves,
-            "resenas":            _adaptar_resenas(resumen.resenas),
-            "reclamos":           _adaptar_reclamos(reclamos_por_local.get(resumen.local_id, [])),
-            # Totales por marca para el desglose en el PDF (Las Gracias / Green Eat / Tea Connection)
-            "totales_por_marca":  totales_marca_por_grupo.get(resumen.local_id, {}),
-        }
+        for resumen in resumenes:
+            nombre_archivo = f"{resumen.local_nombre}_{fecha_str}.pdf"
+            # limpiar caracteres no válidos para nombres de archivo
+            nombre_archivo = "".join(
+                c if c.isalnum() or c in "._- " else "_" for c in nombre_archivo)
+            ruta_pdf = output_dir / nombre_archivo
 
-        try:
-            build_report(data, str(ruta_pdf))
-            pdfs_generados.append(ruta_pdf)
-            logger.info(f"  PDF: {ruta_pdf}")
-        except Exception as e:
-            logger.error(f"  Error generando PDF para {resumen.local_nombre}: {e}")
+            # adaptar ResumenLocal al formato que espera generador_pdf
+            data = {
+                "local":              resumen.local_nombre,
+                "fecha":              f"{fecha_hasta.day}/{fecha_hasta.month}/{fecha_hasta.year}",
+                "total_ordenes":      resumen.total_ordenes,
+                "resenas_negativas":  resumen.resenas_negativas,
+                "errores_graves":     resumen.errores_graves,
+                "resenas":            _adaptar_resenas(resumen.resenas),
+                "reclamos":           _adaptar_reclamos(reclamos_por_local.get(resumen.local_id, [])),
+                # Totales por marca para el desglose en el PDF (Las Gracias / Green Eat / Tea Connection)
+                "totales_por_marca":  totales_marca_por_grupo.get(resumen.local_id, {}),
+            }
+
+            try:
+                build_report(data, str(ruta_pdf))
+                pdfs_generados.append(ruta_pdf)
+                logger.info(f"  PDF: {ruta_pdf}")
+            except Exception as e:
+                logger.error(f"  Error generando PDF para {resumen.local_nombre}: {e}")
 
     # ── generación de Excel ───────────────────────────────────────────────────
-    ruta_excel = output_dir / f"resenas_{fecha_str}.xlsx"
-    try:
-        generar_excel(
-            resumenes=resumenes,
-            todas_resenas=todas_resenas,
-            totales_rappi=totales_rappi,
-            totales_peya=totales_peya,
-            totales_ml=totales_ml,
-            ruta_salida=str(ruta_excel),
-            reclamos=todos_reclamos if todos_reclamos else None,
-            totales_marca_por_grupo=totales_marca_por_grupo,
-        )
-        logger.info(f"  Excel: {ruta_excel}")
-    except Exception as e:
-        logger.error(f"  Error generando Excel: {e}")
+    if args.skip_excel:
+        logger.info("── Generación de Excel omitida (--skip-excel)")
+    else:
+        ruta_excel = output_dir / f"informe_{fecha_str}.xlsx"
+        try:
+            generar_excel(
+                resumenes=resumenes,
+                todas_resenas=todas_resenas,
+                totales_rappi=totales_rappi,
+                totales_peya=totales_peya,
+                totales_ml=totales_ml,
+                ruta_salida=str(ruta_excel),
+                reclamos=todos_reclamos if todos_reclamos else None,
+                totales_marca_por_grupo=totales_marca_por_grupo,
+            )
+            logger.info(f"  Excel: {ruta_excel}")
+        except Exception as e:
+            logger.error(f"  Error generando Excel: {e}")
+
+    # ── PDFs mensuales (6 grupos Marca × DK) ─────────────────────────────────
+    if args.skip_pdf:
+        logger.info("── PDFs mensuales omitidos (--skip-pdf)")
+    else:
+        logger.info("── Generando PDFs mensuales de reclamos por grupo...")
+        try:
+            pdfs_mensuales = generar_pdfs_mensuales(
+                output_dir=str(output_dir),
+                anio=fecha_hasta.year,
+                mes=fecha_hasta.month,
+            )
+            logger.info(f"  PDFs mensuales generados: {len(pdfs_mensuales)}")
+            for p in pdfs_mensuales:
+                logger.info(f"  Mensual: {p}")
+        except Exception as e:
+            logger.error(f"  Error generando PDFs mensuales: {e}")
 
     # ── resumen final ──────────────────────────────────────────────────────────
     logger.info(f"\n{'='*50}")

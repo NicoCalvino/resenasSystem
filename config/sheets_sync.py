@@ -22,7 +22,7 @@ Configuración necesaria en .env:
 El Google Sheet debe estar publicado como "Cualquier persona con el
 enlace puede ver".  Debe tener dos hojas (pestañas):
 
-  Hoja "Tiendas"   — columnas: nombre, marca, grupo, py_id, rappi_id, mp_nombre
+  Hoja "Tiendas"   — columnas: nombre, marca, grupo, py_id, rappi_id, mp_nombre, DK
   Hoja "Keywords"  — columna:  keyword  (una palabra por fila)
 
 Para obtener el ID: abrir el sheet y copiar la parte de la URL entre
@@ -125,12 +125,16 @@ def _save_cache(data: dict) -> None:
 def _parse_tiendas(csv_text: str) -> Optional[List[dict]]:
     """
     Convierte el CSV de la hoja Tiendas en una lista de dicts.
-    Espera columnas: nombre, marca, grupo, py_id, rappi_id, mp_nombre
+    Espera columnas: nombre, marca, grupo, py_id, rappi_id, mp_nombre, DK, Codigo
+    Las columnas DK y Codigo son opcionales; DK: "SI"/"SÍ"/"YES"/"TRUE" → True.
+    Codigo: código alfanumérico que identifica la tienda en la tabla de pedidos.
     Retorna None si el encabezado no contiene las columnas requeridas.
     """
     try:
         reader = csv.DictReader(io.StringIO(csv_text))
-        fields = {f.strip().lower() for f in (reader.fieldnames or [])}
+        # Normalizar nombres de columna a minúsculas para comparación
+        raw_fields = reader.fieldnames or []
+        fields = {f.strip().lower() for f in raw_fields}
         required = {"nombre", "marca", "grupo"}
         if not required.issubset(fields):
             log.warning(
@@ -139,23 +143,34 @@ def _parse_tiendas(csv_text: str) -> Optional[List[dict]]:
             )
             return None
 
+        # Mapeo de nombre original de columna → nombre normalizado
+        field_map = {f.strip(): f.strip().lower() for f in raw_fields}
+
         tiendas = []
         for row in reader:
+            # Renormalizar el row usando el mapa de columnas
+            row_norm = {field_map.get(k, k.strip().lower()): v for k, v in row.items()}
+
             def to_int(v: str) -> Optional[int]:
                 v = str(v).strip()
                 return int(v) if v.lstrip("-").isdigit() else None
 
-            nombre = row.get("nombre", "").strip()
+            def to_bool_dk(v: str) -> bool:
+                return str(v).strip().upper() in {"SI", "SÍ", "YES", "TRUE", "S"}
+
+            nombre = row_norm.get("nombre", "").strip()
             if not nombre:
                 continue
 
             tiendas.append({
                 "nombre":    nombre,
-                "marca":     row.get("marca",     "").strip(),
-                "grupo":     row.get("grupo",     "").strip(),
-                "py_id":     to_int(row.get("py_id",     "")),
-                "rappi_id":  to_int(row.get("rappi_id",  "")),
-                "mp_nombre": row.get("mp_nombre", "").strip() or None,
+                "marca":     row_norm.get("marca",     "").strip(),
+                "grupo":     row_norm.get("grupo",     "").strip(),
+                "py_id":     to_int(row_norm.get("py_id",     "")),
+                "rappi_id":  to_int(row_norm.get("rappi_id",  "")),
+                "mp_nombre": row_norm.get("mp_nombre", "").strip() or None,
+                "dk":        to_bool_dk(row_norm.get("dk", "NO")),
+                "codigo":    row_norm.get("codigo",    "").strip() or None,
             })
 
         return tiendas if tiendas else None
@@ -276,3 +291,4 @@ def cargar_keywords(hardcoded: list) -> List[str]:
         "sin conexion a Sheets y sin cache disponible"
     )
     return list(hardcoded)
+

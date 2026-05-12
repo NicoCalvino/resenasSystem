@@ -180,7 +180,7 @@ class Gauge(Flowable):
         c.roundRect(lx, ly, lw, lh, 3, fill=1, stroke=1)
         c.setFillColor(C_BLACK)
         c.setFont("DJB", 8)
-        c.drawCentredString(cx, ly + lh - 8, f"{self.label}  %{self.pct}")
+        c.drawCentredString(cx, ly + lh - 8, f"{self.label}  {self.pct}%")
         c.setFont("DJ", 7.5)
         c.drawCentredString(cx, ly + 7, f"CANTIDAD: {self.num}")
 
@@ -319,7 +319,7 @@ class ThumbWidget(Flowable):
         c.roundRect(lx, ly, lw, lh, 3, fill=1, stroke=1)
         c.setFillColor(C_BLACK)
         c.setFont("DJB", 8)
-        c.drawCentredString(cx, ly + lh - 8, f"INACEPTABLES  %{self.pct}")
+        c.drawCentredString(cx, ly + lh - 8, f"INACEPTABLES  {self.pct}%")
         c.setFont("DJ", 7.5)
         c.drawCentredString(cx, ly + 7, f"CANTIDAD: {self.num}")
 
@@ -374,7 +374,7 @@ class MarcasRowWidget(Flowable):
             c.setFont("DJ", 8)
             c.setFillColor(C_GRAY)
             if total:
-                pct_str = f"%{pct}" if pct is not None else "—"
+                pct_str = f"{pct}%" if pct is not None else "—"
                 c.drawCentredString(cx, self.height - 26, f"{pct_str} Reclamos  ·  {total:,} Pedidos")
             else:
                 c.drawCentredString(cx, self.height - 26, "—")
@@ -503,7 +503,7 @@ class ReclaimosWidget(Flowable):
             c.setFillColor(C_BLACK)
             c.drawString(ix, y + 4, label)
             c.setFont("DJB", 14)
-            c.drawString(ix + 110, y, f"%{pct}")
+            c.drawString(ix + 110, y, f"{pct}%")
             if i < len(indices) - 1:
                 c.setStrokeColor(C_LGRAY)
                 c.setLineWidth(0.4)
@@ -589,7 +589,7 @@ class ReclaimosGaugeWidget(Flowable):
             # Porcentaje destacado
             c.setFont("DJB", 14)
             c.setFillColor(C_BLACK)
-            val_str = f"%{pct}"
+            val_str = f"{pct}%"
             c.drawString(ix + 110, y, val_str)
 
             # Línea separadora sutil — solo bajo el bloque de texto

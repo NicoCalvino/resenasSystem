@@ -335,7 +335,8 @@ def parsear_reclamos_ml(
             fecha_hora_str = f"{fecha_str} {hora_str}".strip() if hora_str else fecha_str
             fecha = None
             for fmt in ("%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%Y",
-                        "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+                        "%Y-%m-%d %H:%M:%S", "%Y-%m-%d",
+                        "%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M", "%m/%d/%Y"):
                 try:
                     fecha = datetime.strptime(fecha_hora_str, fmt)
                     break

@@ -854,12 +854,143 @@ class KeywordsGravesWindow(tk.Toplevel):
         self._lbl_count.config(text=f"{n} palabra{'s' if n != 1 else ''}")
 
 
+class LinksWindow(tk.Toplevel):
+    """
+    Ventana para ver y editar las URLs de referencia almacenadas en .env.
+    Permite actualizar los webhooks/sheets sin tocar el archivo directamente.
+    """
+
+    LINKS = [
+        ("ML_RECLAMOS_WEBHOOK",   "Reclamos Mercado Libre"),
+        ("PEYA_RECLAMOS_WEBHOOK", "Reclamos PedidosYa"),
+        ("SHEETS_TIENDAS_URL",    "Locales (Google Sheets)"),
+        ("SHEETS_KEYWORDS_URL",   "Palabras Clave (Google Sheets)"),
+        ("PEDIDOS_SHEETS_URL",    "Pedidos (Google Sheets)"),
+    ]
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Links de Referencia")
+        self.resizable(True, False)
+        self.configure(bg=WHITE)
+        self.transient(parent)
+        self.grab_set()
+
+        self._env_path = Path(__file__).parent / ".env"
+        self._vars: dict[str, tk.StringVar] = {}
+
+        self._build()
+        self._cargar()
+
+        self.update_idletasks()
+        pw = parent.winfo_rootx() + parent.winfo_width()  // 2
+        ph = parent.winfo_rooty() + parent.winfo_height() // 2
+        w  = self.winfo_reqwidth()
+        h  = self.winfo_reqheight()
+        self.geometry(f"+{pw - w//2}+{ph - h//2}")
+
+    # ── Datos ─────────────────────────────────────────────────────────────────
+
+    def _leer_env(self) -> dict[str, str]:
+        """Devuelve un dict con todas las claves del .env."""
+        vals: dict[str, str] = {}
+        if self._env_path.exists():
+            for line in self._env_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, _, v = line.partition("=")
+                    vals[k.strip()] = v.strip().strip('"').strip("'")
+        return vals
+
+    def _cargar(self):
+        """Carga los valores actuales del .env en los campos."""
+        vals = self._leer_env()
+        for key, _ in self.LINKS:
+            self._vars[key].set(vals.get(key, ""))
+
+    def _guardar(self):
+        """Escribe los valores editados en el .env preservando el resto."""
+        lineas_originales = []
+        keys_actualizadas: set[str] = set()
+        link_keys = {key for key, _ in self.LINKS}
+
+        if self._env_path.exists():
+            for linea in self._env_path.read_text(encoding="utf-8").splitlines():
+                stripped = linea.strip()
+                if stripped and not stripped.startswith("#") and "=" in stripped:
+                    k, _, _ = stripped.partition("=")
+                    k = k.strip()
+                    if k in link_keys:
+                        val = self._vars[k].get().strip()
+                        lineas_originales.append(f'{k}="{val}"')
+                        keys_actualizadas.add(k)
+                        continue
+                lineas_originales.append(linea)
+
+        # Agregar claves nuevas que no estaban en el .env
+        for key, _ in self.LINKS:
+            if key not in keys_actualizadas:
+                val = self._vars[key].get().strip()
+                if val:
+                    lineas_originales.append(f'{key}="{val}"')
+
+        self._env_path.write_text("\n".join(lineas_originales), encoding="utf-8")
+
+        # Feedback visual
+        self._btn_guardar.config(text="✓  Guardado", bg="#3B6D11")
+        self.after(2000, lambda: self._btn_guardar.config(text="Guardar", bg=DARK))
+
+    # ── UI ────────────────────────────────────────────────────────────────────
+
+    def _build(self):
+        f = tk.Frame(self, bg=WHITE, padx=22, pady=18)
+        f.pack(fill="both", expand=True)
+        f.columnconfigure(0, weight=1)
+
+        for i, (key, label) in enumerate(self.LINKS):
+            var = tk.StringVar()
+            self._vars[key] = var
+
+            top_pad = (0, 0) if i == 0 else (12, 0)
+            tk.Label(f, text=label.upper(), bg=WHITE, fg=MUTED,
+                     font=(FONT, 8, "bold")).grid(
+                     row=i * 2, column=0, sticky="w", pady=top_pad)
+            tk.Entry(f, textvariable=var, font=(FONT, 9), bg=FIELD_BG,
+                     fg="#222222", relief="flat",
+                     highlightbackground=BORDER, highlightthickness=1,
+                     width=72).grid(row=i * 2 + 1, column=0, sticky="ew", ipady=4)
+
+        btn_f = tk.Frame(f, bg=WHITE)
+        btn_f.grid(row=len(self.LINKS) * 2 + 1, column=0,
+                   sticky="ew", pady=(18, 0))
+        btn_f.columnconfigure(0, weight=1)
+
+        self._btn_guardar = tk.Button(
+            btn_f, text="Guardar",
+            font=(FONT, 10, "bold"),
+            bg=DARK, fg=WHITE, relief="flat", bd=0,
+            padx=18, pady=7, cursor="hand2",
+            activebackground="#2d2d4e", activeforeground=WHITE,
+            command=self._guardar,
+        )
+        self._btn_guardar.pack(side="right")
+
+        tk.Button(
+            btn_f, text="Cancelar",
+            font=(FONT, 10),
+            bg=WHITE, fg="#555555", relief="flat",
+            highlightbackground=BORDER, highlightthickness=1,
+            padx=14, pady=7, cursor="hand2",
+            command=self.destroy,
+        ).pack(side="right", padx=(0, 8))
+
+
 class ResenaApp(tk.Tk):
 
     def __init__(self):
         super().__init__()
         self.title("Informes de Reseñas")
-        self.geometry("1220x750")
+        self.geometry("1220x700")
         self.minsize(860, 560)
         self.configure(bg=BG)
 
@@ -875,10 +1006,11 @@ class ResenaApp(tk.Tk):
         self.fecha_desde    = tk.StringVar()
         self.fecha_hasta    = tk.StringVar()
         self.ml_resenas     = tk.StringVar()
-        self.ml_totales     = tk.StringVar()
         self.ml_reclamos    = tk.StringVar()
         self.output_dir     = tk.StringVar(value="./informes")
         self.excel_path     = tk.StringVar()
+        self.generar_pdf    = tk.BooleanVar(value=True)
+        self.generar_excel  = tk.BooleanVar(value=True)
         self.running        = False
         self._proc          = None
         self._peya_proc     = None
@@ -995,6 +1127,16 @@ class ResenaApp(tk.Tk):
             padx=12, pady=5, cursor="hand2",
             command=self._abrir_keywords_graves,
         ).pack(side="right", padx=(0, 0), pady=10)
+
+        # Botón Links Referencias (a la izquierda del botón Palabras clave)
+        tk.Button(
+            hdr, text="🔗  Links Referencias",
+            font=(FONT, 9), bg=BG, fg="#555555",
+            relief="flat",
+            highlightbackground=BORDER, highlightthickness=1,
+            padx=12, pady=5, cursor="hand2",
+            command=self._abrir_links,
+        ).pack(side="right", padx=(0, 14), pady=10)
 
         # Logos de marcas en el header
         brands_f = tk.Frame(hdr, bg=WHITE)
@@ -1118,7 +1260,6 @@ class ResenaApp(tk.Tk):
         self._badges["Mercado Libre"] = _ml_badge
         self._set_badge("Mercado Libre", "Sin CSV", "#F5F5F3", "#888888")
         labeled_file(c_ml.body, "CSV reseñas",   self.ml_resenas,  row=0)
-        labeled_file(c_ml.body, "CSV totales",   self.ml_totales,  row=1)
 
         # Período
         c_per = Card(left, "PERÍODO", DARK)
@@ -1142,6 +1283,18 @@ class ResenaApp(tk.Tk):
         c_salida.body.columnconfigure(0, weight=1)
         labeled_file(c_salida.body, "Carpeta de salida",
                      self.output_dir, row=0, is_dir=True)
+
+        # Checkboxes Generar PDFs / Generar Excel — en el header de la card
+        tk.Checkbutton(c_salida.hdr, text="Generar Excel",
+                       variable=self.generar_excel,
+                       bg=WHITE, fg=MUTED, font=(FONT, 8),
+                       activebackground=WHITE, selectcolor=WHITE,
+                       cursor="hand2").pack(side="right", padx=12)
+        tk.Checkbutton(c_salida.hdr, text="Generar PDFs",
+                       variable=self.generar_pdf,
+                       bg=WHITE, fg=MUTED, font=(FONT, 8),
+                       activebackground=WHITE, selectcolor=WHITE,
+                       cursor="hand2").pack(side="right", padx=(0, 0))
 
         # Log
         c_log = Card(right, "REGISTRO", "#888888")
@@ -1202,12 +1355,20 @@ class ResenaApp(tk.Tk):
         self.btn_cancel.grid(row=1, column=0, sticky="ew", padx=(0,3))
 
         self.btn_excel = tk.Button(
-            btn_frame, text="📄  Regenerar PDFs",
+            btn_frame, text="📄  Regenerar PDFs desde Excel",
             bg=WHITE, fg="#444444", font=(FONT, 10),
             relief="flat", bd=0, pady=6, cursor="hand2",
             highlightbackground=BORDER, highlightthickness=1,
             command=self._iniciar_desde_excel)
         self.btn_excel.grid(row=1, column=1, sticky="ew", padx=(3,0))
+
+        self.btn_mensuales = tk.Button(
+            btn_frame, text="📊  Regenerar PDFs mensuales",
+            bg=WHITE, fg="#444444", font=(FONT, 10),
+            relief="flat", bd=0, pady=6, cursor="hand2",
+            highlightbackground=BORDER, highlightthickness=1,
+            command=self._regenerar_mensuales)
+        self.btn_mensuales.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(4,0))
 
         # Actualizar badge ML al escribir la ruta
         self.ml_resenas.trace_add("write",   lambda *_: self._update_ml_badge())
@@ -1266,6 +1427,48 @@ class ResenaApp(tk.Tk):
 
         threading.Thread(target=_run, daemon=True).start()
 
+    def _regenerar_mensuales(self):
+        """Genera los 6 PDFs mensuales de reclamos por grupo desde el historico.json."""
+        if self.running:
+            messagebox.showwarning("Proceso en curso",
+                                   "Esperá a que termine el proceso actual.", parent=self)
+            return
+
+        out = self.output_dir.get() or "./informes"
+
+        self.running = True
+        self.btn_mensuales.config(state="disabled", text="Procesando...")
+        self.log.config(state="normal")
+        self.log.delete("1.0", "end")
+        self.log.config(state="disabled")
+        self.progress_var.set(0)
+
+        def _run():
+            try:
+                from regenerar_pdfs import regenerar_pdfs_mensuales
+
+                def _log_gui(msg, tag="info"):
+                    self._log(msg, tag)
+
+                self._set_status("Generando PDFs mensuales...", 10)
+                ok, total = regenerar_pdfs_mensuales(
+                    output_dir=out,
+                    log_fn=_log_gui,
+                )
+                self._set_status(
+                    f"Completado: {ok}/{total} PDFs mensuales generados." if total else "Sin datos.",
+                    100,
+                )
+            except Exception as e:
+                self._log(f"Error inesperado: {e}", "error")
+                self._set_status("Error durante la generación mensual.", 0)
+            finally:
+                self.running = False
+                self.after(0, lambda: self.btn_mensuales.config(
+                    state="normal", text="📊  Regenerar PDFs mensuales"))
+
+        threading.Thread(target=_run, daemon=True).start()
+
     def _abrir_locales(self):
         """Abre (o trae al frente) la ventana de gestión de locales."""
         if hasattr(self, "_locales_win") and self._locales_win.winfo_exists():
@@ -1281,6 +1484,14 @@ class ResenaApp(tk.Tk):
             self._keywords_win.focus_force()
         else:
             self._keywords_win = KeywordsGravesWindow(self)
+
+    def _abrir_links(self):
+        """Abre (o trae al frente) la ventana de Links de Referencia."""
+        if hasattr(self, "_links_win") and self._links_win.winfo_exists():
+            self._links_win.lift()
+            self._links_win.focus_force()
+        else:
+            self._links_win = LinksWindow(self)
 
     def _set_badge(self, app, text, bg, fg):
         b = self._badges[app]
@@ -1343,10 +1554,25 @@ class ResenaApp(tk.Tk):
             return
         desde = self.fecha_desde.get()
         hasta = self.fecha_hasta.get()
-        if datetime.strptime(desde, "%Y-%m-%d") > datetime.strptime(hasta, "%Y-%m-%d"):
+        dt_desde = datetime.strptime(desde, "%Y-%m-%d")
+        dt_hasta = datetime.strptime(hasta, "%Y-%m-%d")
+        if dt_desde > dt_hasta:
             messagebox.showerror("Período inválido",
                                  "La fecha 'Desde' no puede ser mayor que 'Hasta'.")
             return
+
+        # Confirmar si el período supera 7 días y se van a generar PDFs
+        if self.generar_pdf.get() and (dt_hasta - dt_desde).days > 7:
+            dias = (dt_hasta - dt_desde).days + 1
+            confirmado = messagebox.askyesno(
+                "Período extenso",
+                f"El período seleccionado abarca {dias} días.\n\n"
+                "Generar PDFs para un período tan largo puede demorar bastante.\n"
+                "¿Querés generar los PDFs de todas formas?",
+                default="no",
+            )
+            if not confirmado:
+                return
 
         self._guardar_config()
         self.running = True
@@ -1448,12 +1674,21 @@ class ResenaApp(tk.Tk):
 
     def _run_proceso(self):
         import subprocess
+
+        # Recargar tiendas y keywords desde Google Sheets antes de cada proceso,
+        # para que cambios en el Sheet se apliquen sin reiniciar la app.
+        try:
+            from config import locales as _locales
+            _locales.recargar()
+            self._log("Configuración actualizada desde Google Sheets.", "info")
+        except Exception as _e:
+            self._log(f"Advertencia: no se pudo recargar configuración ({_e})", "warn")
+
         desde  = self.fecha_desde.get()
         hasta  = self.fecha_hasta.get()
         email  = self.rappi_email.get()
         pwd    = self.rappi_password.get()
         ml_csv      = self.ml_resenas.get()
-        ml_tot      = self.ml_totales.get()
         ml_reclamos = self.ml_reclamos.get()
         out         = self.output_dir.get() or "./informes"
 
@@ -1497,11 +1732,12 @@ class ResenaApp(tk.Tk):
                "--desde", desde, "--hasta", hasta,
                "--headless", "true", "--output", out]
         if ml_csv:      cmd += ["--mp-csv",      ml_csv]
-        if ml_tot:      cmd += ["--mp-totales",  ml_tot]
         if ml_reclamos: cmd += ["--ml-reclamos", ml_reclamos]
         if not use_rappi: cmd += ["--skip-rappi"]
         if not use_peya:  cmd += ["--skip-peya"]
         if not use_ml:    cmd += ["--skip-ml"]
+        if not self.generar_pdf.get():   cmd += ["--skip-pdf"]
+        if not self.generar_excel.get(): cmd += ["--skip-excel"]
 
         env = os.environ.copy()
         env_file = Path(__file__).parent / ".env"
@@ -1591,5 +1827,4 @@ class ResenaApp(tk.Tk):
 
 
 if __name__ == "__main__":
-    app = ResenaApp()
-    app.mainloop()
+    ResenaApp().mainloop()
