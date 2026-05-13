@@ -487,7 +487,45 @@ async def extraer_rappi(email, password, fecha_desde, fecha_hasta=None, headless
     reclamos = convertir_reclamos(raw_reclamos, detalles_reclamos, mapa_ordenes)
 
     # Los totales de órdenes se obtienen del Google Sheets de pedidos (pedidos_sheets.py)
-    return resenas, reclamos, {}, {}
+    # Se retorna también el token para que main.py pueda reutilizarlo en el backfill.
+    return resenas, reclamos, {}, {}, token
+
+
+# ── BACKFILL: reclamos de un día específico ───────────────────────────────────
+async def backfill_reclamos_dia(token: str, fecha: datetime) -> list[Reclamo]:
+    """
+    Descarga los reclamos de Rappi para un día específico usando un token ya obtenido.
+
+    Se usa para rellenar días faltantes en el histórico sin afectar el informe del
+    período actual. Los reclamos retornados se guardan solo en el histórico; no se
+    incorporan a la lista de reclamos del reporte en curso.
+
+    Parámetros:
+      token  — access_token de Rappi (obtenido previamente por extraer_rappi)
+      fecha  — cualquier datetime del día a consultar (se normaliza a 00:00 – 23:59)
+    """
+    dia_desde = fecha.replace(hour=0,  minute=0,  second=0,  microsecond=0)
+    dia_hasta = fecha.replace(hour=23, minute=59, second=59, microsecond=0)
+
+    logger.info(f"Rappi backfill: descargando reclamos para {fecha.strftime('%Y-%m-%d')}")
+
+    # Paso 1: órdenes compensadas del día
+    raw_reclamos = api_reclamos_ordenes(token, ALL_RAPPI_IDS, dia_desde, dia_hasta)
+    order_ids = [str(e.get("order_id", "")) for e in raw_reclamos if e.get("order_id")]
+
+    # Paso 2: detalles de platos y compensaciones
+    mapa_ordenes: dict[str, dict] = {}
+    if order_ids:
+        mapa_ordenes = api_ordenes(token, dia_desde, dia_hasta, order_ids)
+
+    detalles: dict[str, list] = {}
+    if order_ids:
+        detalles = api_reclamos_detalles(token, ALL_RAPPI_IDS, order_ids)
+
+    reclamos = convertir_reclamos(raw_reclamos, detalles, mapa_ordenes)
+    logger.info(
+        f"Rappi backfill {fecha.strftime('%Y-%m-%d')}: {len(reclamos)} reclamos encontrados")
+    return reclamos
 
 
 # ── Test standalone ───────────────────────────────────────────────────────────

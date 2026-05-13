@@ -37,7 +37,7 @@ import logging
 import os
 import string
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -296,3 +296,81 @@ def registrar_ejecucion(
         log.error("historico: %s", e)
     except Exception as e:
         log.error("historico: error inesperado: %s", e)
+
+
+# ==============================================================================
+# Verificación de días de Rappi (backfill del histórico)
+# ==============================================================================
+
+def obtener_dias_no_verificados_rappi(fecha_desde: datetime, fecha_hasta: datetime) -> list[str]:
+    """
+    Devuelve las fechas (YYYY-MM-DD) en el rango [fecha_desde, fecha_hasta]
+    que aún no tienen verificación de reclamos Rappi en el histórico.
+
+    Una fecha "verificada" significa que el proceso ya consultó la API de Rappi
+    para ese día (independientemente de si hubo o no reclamos).
+
+    Retorna lista vacía si no se puede acceder al histórico.
+    """
+    ruta = _obtener_ruta_json()
+    if ruta is None:
+        return []
+
+    data = _leer_json(ruta)
+    verificados = set(data.get("dias_verificados_rappi", []))
+
+    resultado: list[str] = []
+    current = fecha_desde.date()
+    hasta   = fecha_hasta.date()
+    while current <= hasta:
+        fecha_str = current.strftime("%Y-%m-%d")
+        if fecha_str not in verificados:
+            resultado.append(fecha_str)
+        current += timedelta(days=1)
+
+    log.info(
+        "historico: %d días sin verificar Rappi en rango %s → %s",
+        len(resultado),
+        fecha_desde.date(),
+        fecha_hasta.date(),
+    )
+    return resultado
+
+
+def marcar_dias_verificados_rappi(fechas: list[str]) -> None:
+    """
+    Marca las fechas dadas (YYYY-MM-DD) como verificadas para Rappi en el histórico.
+    Se llama tanto cuando se descargaron reclamos como cuando el día no tuvo ninguno
+    (para evitar re-consultar en ejecuciones futuras).
+
+    No hace nada si no se puede acceder al histórico.
+    """
+    if not fechas:
+        return
+
+    ruta = _obtener_ruta_json()
+    if ruta is None:
+        return
+
+    try:
+        ruta.parent.mkdir(parents=True, exist_ok=True)
+        with _FileLock(ruta):
+            data = _leer_json(ruta)
+            data.setdefault("dias_verificados_rappi", [])
+            existentes = set(data["dias_verificados_rappi"])
+            nuevos = 0
+            for f in fechas:
+                if f not in existentes:
+                    data["dias_verificados_rappi"].append(f)
+                    existentes.add(f)
+                    nuevos += 1
+            if nuevos:
+                data["dias_verificados_rappi"].sort()
+                _escribir_json(ruta, data)
+                log.info("historico: %d días Rappi marcados como verificados", nuevos)
+            else:
+                log.debug("historico: todos los días Rappi indicados ya estaban verificados")
+    except TimeoutError as e:
+        log.error("historico: timeout marcando días verificados: %s", e)
+    except Exception as e:
+        log.error("historico: error marcando días Rappi verificados: %s", e)

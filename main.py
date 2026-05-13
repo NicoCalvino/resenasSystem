@@ -157,6 +157,7 @@ async def main():
             logger.info("  → Configurá PEYA_RECLAMOS_WEBHOOK en .env o usá --peya-reclamos /ruta/archivo.csv")
 
     # — Rappi
+    rappi_token = None   # se guarda para reutilizar en el backfill posterior
     if args.skip_rappi:
         logger.info("── Rappi: omitido (desactivado desde la GUI)")
     else:
@@ -165,7 +166,7 @@ async def main():
         if rappi_email and rappi_password:
             logger.info("── Extrayendo Rappi...")
             try:
-                rs, rcs, _tots_rappi, _tots_marca_rappi = await extraer_rappi(
+                rs, rcs, _tots_rappi, _tots_marca_rappi, rappi_token = await extraer_rappi(
                     rappi_email, rappi_password, fecha_desde, fecha_hasta, headless)
                 todas_resenas.extend(rs)
                 todos_reclamos.extend(rcs)
@@ -242,6 +243,55 @@ async def main():
         )
     except Exception as e:
         logger.error(f"Histórico: error inesperado: {e}")
+
+    # ── Backfill de reclamos Rappi (ventana de 7 días) ─────────────────────────
+    # Si Rappi se extrajo con éxito, se verifica que los últimos 7 días tengan
+    # sus reclamos guardados en el histórico. Los días que falten se descargan
+    # y se guardan silenciosamente sin afectar el informe del período actual.
+    if rappi_token:
+        logger.info("── Verificando histórico de reclamos Rappi (ventana 7 días)...")
+        try:
+            from config.historico import (obtener_dias_no_verificados_rappi,
+                                          marcar_dias_verificados_rappi,
+                                          registrar_ejecucion as _registrar)
+            from extractors.rappi import backfill_reclamos_dia
+
+            # Marcar los días del reporte actual como ya verificados
+            dias_reporte: list[str] = []
+            _curr = fecha_desde.date()
+            while _curr <= fecha_hasta.date():
+                dias_reporte.append(_curr.strftime("%Y-%m-%d"))
+                _curr += timedelta(days=1)
+            marcar_dias_verificados_rappi(dias_reporte)
+
+            # Detectar días faltantes en la ventana de 7 días previa a fecha_hasta
+            _ventana_desde = (fecha_hasta - timedelta(days=7)).replace(
+                hour=0, minute=0, second=0, microsecond=0)
+            dias_faltantes = obtener_dias_no_verificados_rappi(_ventana_desde, fecha_hasta)
+
+            # Excluir los que ya cubrió el reporte (por si solapan)
+            dias_reporte_set = set(dias_reporte)
+            dias_faltantes = [d for d in dias_faltantes if d not in dias_reporte_set]
+
+            if dias_faltantes:
+                logger.info(
+                    f"Rappi backfill: {len(dias_faltantes)} días sin verificar → {dias_faltantes}")
+                for dia_str in dias_faltantes:
+                    dia_dt = datetime.strptime(dia_str, "%Y-%m-%d")
+                    try:
+                        reclamos_dia = await backfill_reclamos_dia(rappi_token, dia_dt)
+                        _registrar(reclamos=reclamos_dia, fecha_ejecucion=dia_dt)
+                        marcar_dias_verificados_rappi([dia_str])
+                        logger.info(
+                            f"Rappi backfill {dia_str}: "
+                            f"{len(reclamos_dia)} reclamos guardados en histórico")
+                    except Exception as e:
+                        logger.error(f"Rappi backfill {dia_str} falló: {e}")
+            else:
+                logger.info(
+                    "Rappi backfill: todos los días de la ventana ya están verificados")
+        except Exception as e:
+            logger.error(f"Rappi backfill: error inesperado: {e}")
 
     # ── procesamiento ──────────────────────────────────────────────────────────
     logger.info("── Procesando...")
