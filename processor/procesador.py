@@ -27,7 +27,17 @@ def es_error_grave(comentario, tags):
     return False
 
 class Procesador:
-    def procesar(self, resenas, totales_por_grupo, fecha_desde, fecha_hasta):
+    def procesar(self, resenas, totales_por_grupo, fecha_desde, fecha_hasta,
+                 reclamos=None):
+        """
+        Genera un ResumenLocal por cada grupo que haya tenido al menos un
+        pedido en el período (según totales_por_grupo). Como red de seguridad
+        también se incluyen los grupos que tengan reseñas o reclamos aunque
+        no aparezcan en totales_por_grupo (por ej. si el cálculo de totales
+        desde Google Sheets falló pero igual hubo reseñas o reclamos).
+        """
+        reclamos = reclamos or []
+
         for r in resenas:
             r.es_error_grave = es_error_grave(r.comentario, r.tags)
 
@@ -35,8 +45,15 @@ class Procesador:
         for r in resenas:
             por_grupo[r.local_id].append(r)
 
+        grupos_con_reclamos = {rc.local_id for rc in reclamos if rc.local_id}
+        grupos_con_pedidos  = {g for g, n in totales_por_grupo.items() if n > 0}
+
+        # Unión: grupos con pedidos + grupos con reseñas + grupos con reclamos
+        todos_los_grupos = grupos_con_pedidos | set(por_grupo.keys()) | grupos_con_reclamos
+
         resumenes = []
-        for grupo, rs in por_grupo.items():
+        for grupo in todos_los_grupos:
+            rs = por_grupo.get(grupo, [])
             rs.sort(key=lambda r: r.fecha_orden or datetime.min)
             resumenes.append(ResumenLocal(
                 local_id=grupo, local_nombre=grupo,

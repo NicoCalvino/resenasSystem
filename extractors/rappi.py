@@ -2,8 +2,11 @@
 Extractor Rappi — flujo real.
   1. Playwright → partners.rappi.com/login → localStorage.access_token
   2. api_resenas: paginación automática, filtra 1-2 estrellas
-  3. api_ordenes: llamada MASIVA (una sola request con todos los order_ids)
-     para obtener nombre de platos y tienda
+  3. api_ordenes: detalle de cada orden (de a una) para enriquecer reseñas
+     con nombres reales de los platos.
+  4. api_defects: endpoint /partners-indicators/indicators/defects para
+     reclamos. Se llama una vez por (store_id × tipo_defecto) para
+     garantizar el mapeo store_id → local sin depender de store_name.
 """
 import asyncio, logging, requests, time
 from datetime import datetime, timedelta
@@ -15,21 +18,21 @@ from config.locales import RAPPI_INDEX, ALL_RAPPI_IDS, ALL_RAPPI_IDS_AR
 
 logger = logging.getLogger(__name__)
 
-REVIEWS_URL   = ("https://services.rappi.com/rests-partners-gateway/cauth/"
-                 "api/support-ratings/reviews/details/partner?country=AR")
-ORDERS_URL    = ("https://services.rappi.com/rests-partners-gateway/cauth/"
-                 "rests-stores-config/orders/by-stores?country=AR")
-COMP_SALES_URL = ("https://services.rappi.com/rests-partners-gateway/cauth/"
-                  "api/settlement-financial/v1/stores/sales?country=AR")
-COMP_URL       = ("https://services.rappi.com/rests-partners-gateway/cauth/"
-                  "api/settlement-financial/v1/stores/compensations?country=AR")
+REVIEWS_URL = ("https://services.rappi.com/rests-partners-gateway/cauth/"
+               "api/support-ratings/reviews/details/partner?country=AR")
+ORDERS_URL  = ("https://services.rappi.com/rests-partners-gateway/cauth/"
+               "rests-stores-config/orders/by-stores?country=AR")
+DEFECTS_URL = ("https://services.rappi.com/rests-partners-gateway/cauth/"
+               "partners-indicators/indicators/defects")
 
-# Traducción de motivos de reclamo (inglés → español)
-RAZON_TRADUCCION = {
-    "product_poor":       "CALIDAD",
-    "product_missing":    "INCOMPLETO",
-    "product_difference": "EQUIVOCADO",
+# Tipos de defecto soportados por el endpoint /defects.
+# Cada tipo se traduce a una razón en español que es la que ve el restaurante.
+TIPO_A_RAZON = {
+    "ERROR_MISSING": "INCOMPLETO",
+    "ERROR_WRONG":   "EQUIVOCADO",
+    "ERROR_DAMAGED": "CALIDAD",
 }
+TIPOS_DEFECTO = list(TIPO_A_RAZON.keys())
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -265,154 +268,173 @@ def convertir(raw: list[dict]) -> list[Resena]:
     return resenas
 
 
-# ── API RECLAMOS — paso 1: órdenes compensadas (con paginación) ───────────────
-def api_reclamos_ordenes(token, store_ids, desde, hasta) -> list[dict]:
+# ── API RECLAMOS — endpoint /defects (una request por store × tipo) ───────────
+def api_defects(token, store_id_ar: str, tipo: str,
+                desde: datetime, hasta: datetime) -> list[dict]:
     """
-    Trae todas las órdenes con status COMPENSATIONS paginando automáticamente.
-    Retorna lista de entries con {order_id, order_date, store_id, store_name, ...}.
+    Trae todas las órdenes con defecto del tipo dado para UN solo store_id.
+    Pagina automáticamente (size=200) usando total_pages de la respuesta.
+
+    Se hace una request por (store, tipo) para garantizar el mapeo
+    store_id → local: el endpoint NO devuelve store_id en cada entry, así que
+    lo inyectamos manualmente (`_store_id_num`) junto con el tipo (`_tipo_defecto`)
+    para que convertir_reclamos lo use.
+
+    Args:
+      token:       bearer access_token de Rappi.
+      store_id_ar: ID de tienda CON prefijo "AR" (ej "AR257383").
+      tipo:        uno de TIPOS_DEFECTO ("ERROR_MISSING", "ERROR_WRONG", "ERROR_DAMAGED").
+      desde, hasta: rango de fechas (datetime).
     """
-    all_entries = []
-    page        = 1
-    per_page    = 50
+    all_orders: list[dict] = []
+    page = 0
+    size = 200
+    store_id_num = store_id_ar.replace("AR", "")
 
     while True:
         body = {
-            "page_number":     page,
-            "page_size":       per_page,
-            "order_status:eq": ["COMPENSATIONS"],
-            "store_ids":       store_ids,
-            "order_date:gte":  _d(desde),
-            "order_date:lte":  _d(hasta),
+            "country_code": "AR",
+            "from":         _d(desde),
+            "to":           _d(hasta),
+            "order_by":     "DATE",
+            "order_id":     "",
+            "ordering":     "DESC",
+            "page":         page,
+            "size":         size,
+            "store_ids":    [store_id_ar],
+            "type":         tipo,
         }
-        r = requests.post(COMP_SALES_URL, headers=_h(token), json=body, timeout=60)
-        r.raise_for_status()
 
-        if not r.text.strip():
-            logger.warning(f"Rappi reclamos órdenes pág {page}: respuesta vacía de la API — omitiendo")
+        try:
+            r = requests.post(DEFECTS_URL, headers=_h(token), json=body, timeout=60)
+            r.raise_for_status()
+            if not r.text.strip():
+                logger.warning(f"Rappi defects {store_id_ar}/{tipo} pág {page}: respuesta vacía")
+                break
+            data = r.json()
+        except Exception as e:
+            logger.error(f"Rappi defects {store_id_ar}/{tipo} pág {page}: {e}")
             break
 
-        entries = r.json().get("entries", [])
-        logger.info(f"Rappi reclamos órdenes pág {page}: {len(entries)} registros")
+        # La API envuelve la respuesta en {"result": {...}}. Si la estructura
+        # cambiara en el futuro y mandara los campos en la raíz, también funciona.
+        if isinstance(data, dict):
+            result = data.get("result") if isinstance(data.get("result"), dict) else data
+        else:
+            result = {}
 
-        if not entries:
+        orders = result.get("orders") or []
+        if not orders:
             break
 
-        all_entries.extend(entries)
+        # Inyectar metadata para que convertir_reclamos pueda mapear y traducir
+        for o in orders:
+            o["_store_id_num"] = store_id_num
+            o["_tipo_defecto"] = tipo
 
-        if len(entries) < per_page:
+        all_orders.extend(orders)
+
+        total_pages = int(result.get("total_pages") or 1)
+        if page >= total_pages - 1:
             break
-
         page += 1
 
-    logger.info(f"Rappi reclamos: {len(all_entries)} órdenes compensadas en total")
+    return all_orders
+
+
+def traer_defects_todos(token, store_ids_num: list[str],
+                        desde: datetime, hasta: datetime) -> list[dict]:
+    """
+    Loop por store_id × tipo de defecto. Devuelve lista plana de entries
+    (con _store_id_num y _tipo_defecto inyectados) lista para convertir.
+
+    store_ids_num: lista de IDs numéricos sin prefijo (los de ALL_RAPPI_IDS).
+    """
+    all_entries: list[dict] = []
+    total_stores = len(store_ids_num)
+    total_tipos  = len(TIPOS_DEFECTO)
+    total_calls  = total_stores * total_tipos
+    hechas       = 0
+
+    for sid_num in store_ids_num:
+        sid_str    = str(sid_num).strip()
+        store_id_ar = f"AR{sid_str}"
+        for tipo in TIPOS_DEFECTO:
+            entries = api_defects(token, store_id_ar, tipo, desde, hasta)
+            hechas += 1
+            if entries:
+                # Loguear con la razón en español (INCOMPLETO/EQUIVOCADO/CALIDAD)
+                # en lugar del código ERROR_* para que los viewers de logs no
+                # marquen estas líneas como errores por simple substring match.
+                razon_log = TIPO_A_RAZON.get(tipo, tipo)
+                logger.info(
+                    f"Rappi defects [{hechas}/{total_calls}] "
+                    f"{store_id_ar} {razon_log}: {len(entries)} órdenes")
+            all_entries.extend(entries)
+            time.sleep(0.25)
+
+    logger.info(
+        f"Rappi defects total: {len(all_entries)} órdenes "
+        f"({total_stores} stores × {total_tipos} tipos = {total_calls} requests)")
     return all_entries
 
 
-# ── API RECLAMOS — paso 2: detalle de compensaciones por orden ────────────────
-def api_reclamos_detalles(token, store_ids, order_ids: list[str]) -> dict[str, list]:
-    """
-    Para cada order_id consulta el endpoint de compensations y obtiene los detalles.
-    Retorna dict { order_id → lista de compensations [{products_names, reason, ...}] }.
-    """
-    if not order_ids:
-        return {}
-
-    detalles: dict[str, list] = {}
-
-    for oid in order_ids:
-        oid_str = str(oid).strip()
-        body = {
-            "store_ids":   store_ids,
-            "order_ids":   [oid_str],
-            "page_number": 1,
-            "page_size":   1,
-        }
-        try:
-            r = requests.post(COMP_URL, headers=_h(token), json=body, timeout=60)
-            r.raise_for_status()
-            if not r.text.strip():
-                logger.warning(f"Rappi reclamo detalle {oid_str}: respuesta vacía — omitiendo")
-                continue
-            entries = r.json().get("entries", [])
-        except Exception as e:
-            logger.error(f"Rappi reclamo detalle {oid_str}: {e}")
-            continue
-
-        if entries:
-            detalles[oid_str] = entries[0].get("compensations", [])
-        else:
-            detalles[oid_str] = []
-
-        time.sleep(0.25)
-
-    logger.info(f"Rappi reclamos detalles: {len(detalles)} obtenidos de {len(order_ids)} buscados")
-    return detalles
-
-
 # ── CONVERTIR reclamos crudos al modelo ───────────────────────────────────────
-def convertir_reclamos(raw_ordenes: list[dict],
-                       detalles: dict[str, list],
-                       mapa_ordenes: dict[str, dict]) -> list[Reclamo]:
+def convertir_reclamos(entries: list[dict]) -> list[Reclamo]:
     """
-    Combina:
-      - raw_ordenes:  lista de entries de COMP_SALES_URL (una fila por orden compensada)
-      - detalles:     dict order_id → compensations del COMP_URL
-      - mapa_ordenes: dict order_id → {tienda, platos} de api_ordenes (ya existente)
+    Convierte la lista de entries de /indicators/defects al modelo Reclamo.
+    Cada entry trae _store_id_num y _tipo_defecto inyectados por api_defects.
+
+    Campos esperados por entry:
+      - order_id (int o str)
+      - order_date ("YYYY-MM-DDTHH:MM" — solo fecha útil; hora siempre 00:00)
+      - product_name (str con productos separados por coma)
+      - comments (texto libre del cliente)
+      - reason (código del defecto, ej. "missing_item")  ← se ignora, usamos _tipo_defecto
+      - level_1, level_2 (subcategorías técnicas)  ← se ignoran
     """
     reclamos = []
 
-    for orden in raw_ordenes:
-        oid = str(orden.get("order_id", "")).strip()
+    for o in entries:
+        oid = str(o.get("order_id", "")).strip()
         if not oid:
             continue
 
-        sid    = orden.get("store_id")
-        tienda = RAPPI_INDEX.get(int(sid)) if sid else None
+        sid_num = o.get("_store_id_num", "")
+        try:
+            tienda = RAPPI_INDEX.get(int(sid_num)) if sid_num else None
+        except (TypeError, ValueError):
+            tienda = None
         if not tienda:
-            logger.warning(f"Rappi reclamo: store_id {sid} no encontrado en config")
+            logger.warning(f"Rappi reclamo: store_id {sid_num} no encontrado en config (order {oid})")
             continue
 
-        # ── Fecha (la API devuelve UTC; se convierte a hora local Argentina UTC-3)
-        fecha_s = str(orden.get("order_date", ""))
+        # ── Fecha — el endpoint /defects devuelve solo fecha ("YYYY-MM-DDTHH:MM"),
+        #    la hora siempre es 00:00 → no requiere ajuste UTC.
+        fecha_s = str(o.get("order_date", "") or "")
         fecha   = datetime.now()
-        UTC_FMTS = {"%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ"}
-        for fmt in ["%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ",
-                    "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]:
+        for fmt in ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M",
+                    "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]:
             try:
                 fecha = datetime.strptime(fecha_s, fmt)
-                if fmt in UTC_FMTS:
-                    fecha -= timedelta(hours=3)
                 break
             except ValueError:
                 pass
-
-        # ── Platos pedidos (de la misma api_ordenes usada en reseñas) ──────────
-        detalle_orden = mapa_ordenes.get(oid)
-        if detalle_orden and detalle_orden.get("platos"):
-            nombres = [p["nombre"] for p in detalle_orden["platos"] if p["nombre"]]
-            platos_pedidos = " / ".join(nombres) if nombres else "(sin detalle)"
         else:
-            platos_pedidos = "(sin detalle)"
+            logger.warning(f"Rappi reclamo: no se pudo parsear fecha '{fecha_s}' — usando ahora")
 
-        # ── Detalles del reclamo (products_names + reason + user_details) ───────
-        compensaciones = detalles.get(oid, [])
-        platos_reclamados_list: list[str] = []
-        razones_list:           list[str] = []
-        comentarios_list:       list[str] = []
+        # ── Productos: product_name viene ya como string separado por comas.
+        #    Se usa el mismo valor para platos_pedidos y platos_reclamados
+        #    porque el endpoint no devuelve el detalle completo de la orden.
+        product_name = str(o.get("product_name", "") or "").strip()
+        platos       = product_name if product_name else "(sin detalle)"
 
-        for comp in compensaciones:
-            for prod in comp.get("products_names", []):
-                if prod and prod not in platos_reclamados_list:
-                    platos_reclamados_list.append(prod)
+        # ── Razón: del tipo de defecto del request (más confiable que `reason`,
+        #    que viene en código interno tipo "missing_item").
+        tipo  = str(o.get("_tipo_defecto", "") or "")
+        razon = TIPO_A_RAZON.get(tipo, tipo)
 
-            reason_raw = comp.get("reason", "")
-            reason     = RAZON_TRADUCCION.get(reason_raw, reason_raw)
-            if reason and reason not in razones_list:
-                razones_list.append(reason)
-
-            user_comment = str(comp.get("user_details", "") or "").strip()
-            if user_comment and user_comment not in comentarios_list:
-                comentarios_list.append(user_comment)
+        comentario = str(o.get("comments", "") or "").strip()
 
         reclamos.append(Reclamo(
             orden_id          = oid,
@@ -421,10 +443,10 @@ def convertir_reclamos(raw_ordenes: list[dict],
             local_id          = tienda["grupo"],
             local_nombre      = tienda["grupo"],
             fecha_orden       = fecha,
-            platos_pedidos    = platos_pedidos,
-            platos_reclamados = " / ".join(platos_reclamados_list) if platos_reclamados_list else "",
-            razon             = " | ".join(razones_list) if razones_list else "",
-            comentario        = " | ".join(comentarios_list) if comentarios_list else "",
+            platos_pedidos    = platos,
+            platos_reclamados = platos,
+            razon             = razon,
+            comentario        = comentario,
         ))
 
     logger.info(f"Rappi reclamos convertidos: {len(reclamos)}")
@@ -434,11 +456,12 @@ def convertir_reclamos(raw_ordenes: list[dict],
 # ── FLUJO COMPLETO ────────────────────────────────────────────────────────────
 async def extraer_rappi(email, password, fecha_desde, fecha_hasta=None, headless=True):
     """
-    Retorna (resenas, reclamos, totales_por_grupo, totales_marca_por_grupo).
-    - resenas:             reseñas negativas (1-2 estrellas) con .plato enriquecido
-    - reclamos:            órdenes compensadas con platos pedidos y reclamados
-    - totales_por_grupo:   dict { grupo → total_ordenes }
-    - totales_marca_por_grupo: dict { grupo → { marca → total_ordenes } }
+    Retorna (resenas, reclamos, totales_por_grupo, totales_marca_por_grupo, token).
+    - resenas:                 reseñas negativas (1-2 estrellas) con .plato enriquecido
+    - reclamos:                órdenes con defecto (missing/wrong/damaged) por local
+    - totales_por_grupo:       dict { grupo → total_ordenes }  (vacío: se llena en main)
+    - totales_marca_por_grupo: dict { grupo → { marca → total_ordenes } }  (vacío)
+    - token:                   access_token para reutilizar en el backfill
     """
     if not fecha_hasta:
         fecha_hasta = datetime.now()
@@ -449,22 +472,14 @@ async def extraer_rappi(email, password, fecha_desde, fecha_hasta=None, headless
     raw     = api_resenas(token, ALL_RAPPI_IDS, fecha_desde, fecha_hasta)
     resenas = convertir(raw)
 
-    # 2. Reclamos — paso 1: órdenes compensadas
-    logger.info("── Rappi: extrayendo reclamos (COMPENSATIONS)...")
-    raw_reclamos = api_reclamos_ordenes(token, ALL_RAPPI_IDS, fecha_desde, fecha_hasta)
-
-    # 3. Detalle de órdenes unificado: incluye order_ids de reseñas Y de reclamos
-    #    Una sola pasada por api_ordenes para obtener todos los platos de una vez.
-    order_ids_resenas  = [r.orden_id for r in resenas]
-    order_ids_reclamos = [str(e.get("order_id", "")) for e in raw_reclamos if e.get("order_id")]
-    # Unión sin duplicados, preservando orden
-    order_ids_todos = list(dict.fromkeys(order_ids_resenas + order_ids_reclamos))
-
+    # 2. Enriquecer reseñas con nombre real del plato (api_ordenes — una por una).
+    #    Ya no se usa api_ordenes para reclamos: el endpoint /defects trae los
+    #    productos en product_name, así que solo necesitamos detalle para reseñas.
+    order_ids_resenas = [r.orden_id for r in resenas]
     mapa_ordenes: dict[str, dict] = {}
-    if order_ids_todos:
-        mapa_ordenes = api_ordenes(token, fecha_desde, fecha_hasta, order_ids_todos)
+    if order_ids_resenas:
+        mapa_ordenes = api_ordenes(token, fecha_desde, fecha_hasta, order_ids_resenas)
 
-    # 4. Enriquecer reseñas con nombre real del plato
     enriquecidas = 0
     for r in resenas:
         detalle = mapa_ordenes.get(r.orden_id)
@@ -475,18 +490,14 @@ async def extraer_rappi(email, password, fecha_desde, fecha_hasta=None, headless
                 enriquecidas += 1
         elif not r.plato:
             r.plato = "(sin detalle de producto)"
-
     logger.info(f"Rappi: {enriquecidas}/{len(resenas)} reseñas enriquecidas con nombre de plato")
 
-    # 5. Reclamos — paso 2: detalles de compensación por orden
-    detalles_reclamos: dict[str, list] = {}
-    if order_ids_reclamos:
-        detalles_reclamos = api_reclamos_detalles(token, ALL_RAPPI_IDS, order_ids_reclamos)
+    # 3. Reclamos — endpoint /indicators/defects (una request por store × tipo)
+    logger.info("── Rappi: extrayendo reclamos (defects: missing/wrong/damaged)...")
+    entries_defects = traer_defects_todos(token, ALL_RAPPI_IDS, fecha_desde, fecha_hasta)
+    reclamos = convertir_reclamos(entries_defects)
 
-    # 6. Convertir reclamos al modelo
-    reclamos = convertir_reclamos(raw_reclamos, detalles_reclamos, mapa_ordenes)
-
-    # Los totales de órdenes se obtienen del Google Sheets de pedidos (pedidos_sheets.py)
+    # Los totales de órdenes se obtienen del Google Sheets de pedidos (pedidos_sheets.py).
     # Se retorna también el token para que main.py pueda reutilizarlo en el backfill.
     return resenas, reclamos, {}, {}, token
 
@@ -509,20 +520,9 @@ async def backfill_reclamos_dia(token: str, fecha: datetime) -> list[Reclamo]:
 
     logger.info(f"Rappi backfill: descargando reclamos para {fecha.strftime('%Y-%m-%d')}")
 
-    # Paso 1: órdenes compensadas del día
-    raw_reclamos = api_reclamos_ordenes(token, ALL_RAPPI_IDS, dia_desde, dia_hasta)
-    order_ids = [str(e.get("order_id", "")) for e in raw_reclamos if e.get("order_id")]
+    entries  = traer_defects_todos(token, ALL_RAPPI_IDS, dia_desde, dia_hasta)
+    reclamos = convertir_reclamos(entries)
 
-    # Paso 2: detalles de platos y compensaciones
-    mapa_ordenes: dict[str, dict] = {}
-    if order_ids:
-        mapa_ordenes = api_ordenes(token, dia_desde, dia_hasta, order_ids)
-
-    detalles: dict[str, list] = {}
-    if order_ids:
-        detalles = api_reclamos_detalles(token, ALL_RAPPI_IDS, order_ids)
-
-    reclamos = convertir_reclamos(raw_reclamos, detalles, mapa_ordenes)
     logger.info(
         f"Rappi backfill {fecha.strftime('%Y-%m-%d')}: {len(reclamos)} reclamos encontrados")
     return reclamos

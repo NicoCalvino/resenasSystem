@@ -47,6 +47,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger("main")
 
+# ── Configuración del backfill histórico ─────────────────────────────────────
+# Cantidad de días previos a fecha_hasta que se revisan en el backfill de
+# reclamos para cada plataforma. Cambiar este valor afecta cuánto hacia atrás
+# se busca cuando un día está sin verificar (o tiene 0 reclamos registrados).
+DIAS_BACKFILL = 16
+
 
 def parse_args():
     p = argparse.ArgumentParser(description="Sistema de reseñas negativas")
@@ -120,6 +126,7 @@ async def main():
         logger.error(f"Totales desde Sheets falló: {e}")
 
     # — PedidosYa
+    ruta_peya_reclamos = None   # expuesta aquí para reutilizar en el backfill
     if args.skip_peya:
         logger.info("── PedidosYa: omitido (desactivado desde la GUI)")
     else:
@@ -180,6 +187,7 @@ async def main():
             logger.warning("Rappi: credenciales no configuradas (RAPPI_EMAIL / RAPPI_PASSWORD)")
 
     # — Mercado Libre
+    ruta_ml_reclamos = None     # expuesta aquí para reutilizar en el backfill
     if args.skip_ml:
         logger.info("── Mercado Libre: omitido (desactivado desde la GUI)")
     else:
@@ -196,7 +204,7 @@ async def main():
             logger.info("Mercado Libre: no se encontró CSV de reseñas — omitiendo")
             logger.info("  → Colocá el CSV en ./mercadopago/ o usá --mp-csv /ruta/archivo.csv")
 
-        ruta_ml_reclamos = args.ml_reclamos or os.environ.get("ML_RECLAMOS_CSV")
+        ruta_ml_reclamos = args.ml_reclamos or os.environ.get("ML_RECLAMOS_CSV") or ruta_ml_reclamos
 
         # Si no hay CSV manual, intentar descargar desde webhook de n8n
         if not ruta_ml_reclamos:
@@ -244,60 +252,127 @@ async def main():
     except Exception as e:
         logger.error(f"Histórico: error inesperado: {e}")
 
-    # ── Backfill de reclamos Rappi (ventana de 7 días) ─────────────────────────
-    # Si Rappi se extrajo con éxito, se verifica que los últimos 7 días tengan
-    # sus reclamos guardados en el histórico. Los días que falten se descargan
-    # y se guardan silenciosamente sin afectar el informe del período actual.
-    if rappi_token:
-        logger.info("── Verificando histórico de reclamos Rappi (ventana 7 días)...")
-        try:
-            from config.historico import (obtener_dias_no_verificados_rappi,
-                                          marcar_dias_verificados_rappi,
-                                          registrar_ejecucion as _registrar)
-            from extractors.rappi import backfill_reclamos_dia
+    # ── Backfill de reclamos (ventana configurable, todas las plataformas) ───────
+    # Para cada plataforma se verifica que los últimos DIAS_BACKFILL días tengan
+    # sus reclamos guardados en el histórico. Los días faltantes (o los que
+    # quedaron con 0 reclamos en una corrida previa) se descargan/parsean y se
+    # guardan silenciosamente sin afectar el informe del período actual.
+    try:
+        from config.historico import (obtener_dias_no_verificados,
+                                      marcar_dias_verificados,
+                                      registrar_ejecucion as _registrar)
 
-            # Marcar los días del reporte actual como ya verificados
-            dias_reporte: list[str] = []
-            _curr = fecha_desde.date()
-            while _curr <= fecha_hasta.date():
-                dias_reporte.append(_curr.strftime("%Y-%m-%d"))
-                _curr += timedelta(days=1)
-            marcar_dias_verificados_rappi(dias_reporte)
+        # Ventana de backfill: DIAS_BACKFILL días previos a fecha_hasta
+        _ventana_desde = (fecha_hasta - timedelta(days=DIAS_BACKFILL)).replace(
+            hour=0, minute=0, second=0, microsecond=0)
 
-            # Detectar días faltantes en la ventana de 7 días previa a fecha_hasta
-            _ventana_desde = (fecha_hasta - timedelta(days=7)).replace(
-                hour=0, minute=0, second=0, microsecond=0)
-            dias_faltantes = obtener_dias_no_verificados_rappi(_ventana_desde, fecha_hasta)
+        # Días del reporte actual → se marcan verificados en todas las plataformas
+        dias_reporte: list[str] = []
+        _curr = fecha_desde.date()
+        while _curr <= fecha_hasta.date():
+            dias_reporte.append(_curr.strftime("%Y-%m-%d"))
+            _curr += timedelta(days=1)
+        dias_reporte_set = set(dias_reporte)
 
-            # Excluir los que ya cubrió el reporte (por si solapan)
-            dias_reporte_set = set(dias_reporte)
-            dias_faltantes = [d for d in dias_faltantes if d not in dias_reporte_set]
+        # ── Rappi ──────────────────────────────────────────────────────────────
+        if rappi_token:
+            logger.info(f"── Backfill Rappi (ventana {DIAS_BACKFILL} días)...")
+            try:
+                from extractors.rappi import backfill_reclamos_dia
 
-            if dias_faltantes:
-                logger.info(
-                    f"Rappi backfill: {len(dias_faltantes)} días sin verificar → {dias_faltantes}")
-                for dia_str in dias_faltantes:
-                    dia_dt = datetime.strptime(dia_str, "%Y-%m-%d")
-                    try:
-                        reclamos_dia = await backfill_reclamos_dia(rappi_token, dia_dt)
-                        _registrar(reclamos=reclamos_dia, fecha_ejecucion=dia_dt)
-                        marcar_dias_verificados_rappi([dia_str])
-                        logger.info(
-                            f"Rappi backfill {dia_str}: "
-                            f"{len(reclamos_dia)} reclamos guardados en histórico")
-                    except Exception as e:
-                        logger.error(f"Rappi backfill {dia_str} falló: {e}")
-            else:
-                logger.info(
-                    "Rappi backfill: todos los días de la ventana ya están verificados")
-        except Exception as e:
-            logger.error(f"Rappi backfill: error inesperado: {e}")
+                marcar_dias_verificados("rappi", dias_reporte)
+                dias_faltantes_rappi = [
+                    d for d in obtener_dias_no_verificados("rappi", _ventana_desde, fecha_hasta)
+                    if d not in dias_reporte_set
+                ]
+                if dias_faltantes_rappi:
+                    logger.info(
+                        f"Rappi backfill: {len(dias_faltantes_rappi)} días sin verificar "
+                        f"→ {dias_faltantes_rappi}")
+                    for dia_str in dias_faltantes_rappi:
+                        dia_dt = datetime.strptime(dia_str, "%Y-%m-%d")
+                        try:
+                            reclamos_dia = await backfill_reclamos_dia(rappi_token, dia_dt)
+                            _registrar(reclamos=reclamos_dia, fecha_ejecucion=dia_dt)
+                            marcar_dias_verificados("rappi", [dia_str])
+                            logger.info(
+                                f"Rappi backfill {dia_str}: "
+                                f"{len(reclamos_dia)} reclamos guardados en histórico")
+                        except Exception as e:
+                            logger.error(f"Rappi backfill {dia_str} falló: {e}")
+                else:
+                    logger.info("Rappi backfill: todos los días ya verificados")
+            except Exception as e:
+                logger.error(f"Rappi backfill: error inesperado: {e}")
+
+        # ── PedidosYa ──────────────────────────────────────────────────────────
+        if not args.skip_peya and ruta_peya_reclamos:
+            logger.info(f"── Backfill PedidosYa (ventana {DIAS_BACKFILL} días)...")
+            try:
+                marcar_dias_verificados("pedidosya", dias_reporte)
+                dias_faltantes_peya = [
+                    d for d in obtener_dias_no_verificados("pedidosya", _ventana_desde, fecha_hasta)
+                    if d not in dias_reporte_set
+                ]
+                if dias_faltantes_peya:
+                    logger.info(
+                        f"PedidosYa backfill: {len(dias_faltantes_peya)} días sin verificar "
+                        f"→ {dias_faltantes_peya}")
+                    # El CSV tiene datos históricos: se parsea una sola vez para
+                    # todo el rango faltante (más eficiente que hacerlo día a día).
+                    bf_desde_peya = datetime.strptime(dias_faltantes_peya[0],  "%Y-%m-%d")
+                    bf_hasta_peya = datetime.strptime(dias_faltantes_peya[-1], "%Y-%m-%d").replace(
+                        hour=23, minute=59, second=59)
+                    reclamos_bf_peya = parsear_reclamos_peya_webhook(
+                        ruta_peya_reclamos, bf_desde_peya, bf_hasta_peya)
+                    _registrar(reclamos=reclamos_bf_peya, fecha_ejecucion=bf_hasta_peya)
+                    marcar_dias_verificados("pedidosya", dias_faltantes_peya)
+                    logger.info(
+                        f"PedidosYa backfill: {len(reclamos_bf_peya)} reclamos guardados "
+                        f"en histórico para {len(dias_faltantes_peya)} días")
+                else:
+                    logger.info("PedidosYa backfill: todos los días ya verificados")
+            except Exception as e:
+                logger.error(f"PedidosYa backfill: error inesperado: {e}")
+
+        # ── Mercado Libre ──────────────────────────────────────────────────────
+        if not args.skip_ml and ruta_ml_reclamos:
+            logger.info(f"── Backfill Mercado Libre (ventana {DIAS_BACKFILL} días)...")
+            try:
+                from extractors.mercadopago import parsear_reclamos_ml as _parsear_ml
+
+                marcar_dias_verificados("ml", dias_reporte)
+                dias_faltantes_ml = [
+                    d for d in obtener_dias_no_verificados("ml", _ventana_desde, fecha_hasta)
+                    if d not in dias_reporte_set
+                ]
+                if dias_faltantes_ml:
+                    logger.info(
+                        f"ML backfill: {len(dias_faltantes_ml)} días sin verificar "
+                        f"→ {dias_faltantes_ml}")
+                    bf_desde_ml = datetime.strptime(dias_faltantes_ml[0],  "%Y-%m-%d")
+                    bf_hasta_ml = datetime.strptime(dias_faltantes_ml[-1], "%Y-%m-%d").replace(
+                        hour=23, minute=59, second=59)
+                    reclamos_bf_ml = _parsear_ml(ruta_ml_reclamos, bf_desde_ml, bf_hasta_ml)
+                    _registrar(reclamos=reclamos_bf_ml, fecha_ejecucion=bf_hasta_ml)
+                    marcar_dias_verificados("ml", dias_faltantes_ml)
+                    logger.info(
+                        f"ML backfill: {len(reclamos_bf_ml)} reclamos guardados "
+                        f"en histórico para {len(dias_faltantes_ml)} días")
+                else:
+                    logger.info("ML backfill: todos los días ya verificados")
+            except Exception as e:
+                logger.error(f"ML backfill: error inesperado: {e}")
+
+    except Exception as e:
+        logger.error(f"Backfill histórico: error general inesperado: {e}")
 
     # ── procesamiento ──────────────────────────────────────────────────────────
     logger.info("── Procesando...")
     proc     = Procesador()
     resumenes: list[ResumenLocal] = proc.procesar(
-        todas_resenas, totales_grupo, fecha_desde, fecha_hasta)
+        todas_resenas, totales_grupo, fecha_desde, fecha_hasta,
+        reclamos=todos_reclamos)
 
     # ── generación de PDFs ─────────────────────────────────────────────────────
     fecha_str = fecha_hasta.strftime("%Y-%m-%d")
@@ -370,6 +445,7 @@ async def main():
                 output_dir=str(output_dir),
                 anio=fecha_hasta.year,
                 mes=fecha_hasta.month,
+                fecha_hasta=fecha_hasta,
             )
             logger.info(f"  PDFs mensuales generados: {len(pdfs_mensuales)}")
             for p in pdfs_mensuales:
@@ -441,7 +517,6 @@ def _adaptar_reclamos(reclamos):
             "inaceptable":       es_error_grave(rc.comentario or "", [rc.razon or ""]),
         })
     return result
-
 
 if __name__ == "__main__":
     asyncio.run(main())

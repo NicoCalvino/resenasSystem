@@ -334,9 +334,15 @@ def parsear_reclamos_ml(
             hora_str  = col("HORA_DIA_RECLAMO")
             fecha_hora_str = f"{fecha_str} {hora_str}".strip() if hora_str else fecha_str
             fecha = None
-            for fmt in ("%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%Y",
-                        "%Y-%m-%d %H:%M:%S", "%Y-%m-%d",
-                        "%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M", "%m/%d/%Y"):
+            # IMPORTANTE: el CSV de reclamos de ML viene con FECHA_CREACION en
+            # formato americano (m/d/Y). Si se prueba %d/%m/%Y primero, fechas
+            # como "5/1/2026" (1 de mayo) se interpretan como "5 de enero", lo
+            # cual saca silenciosamente reclamos del rango del informe. Por eso
+            # se prueba primero ISO (inequívoco), después americano (formato
+            # real del CSV) y por último europeo como fallback defensivo.
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d",
+                        "%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M", "%m/%d/%Y",
+                        "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%Y"):
                 try:
                     fecha = datetime.strptime(fecha_hora_str, fmt)
                     break

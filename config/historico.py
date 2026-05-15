@@ -299,25 +299,65 @@ def registrar_ejecucion(
 
 
 # ==============================================================================
-# Verificación de días de Rappi (backfill del histórico)
+# Verificación de días por plataforma (backfill del histórico)
 # ==============================================================================
 
-def obtener_dias_no_verificados_rappi(fecha_desde: datetime, fecha_hasta: datetime) -> list[str]:
+# Tabla de normalización de nombres de plataforma → slug usado como clave en el JSON.
+# La clave en el JSON es: "dias_verificados_{slug}"
+_SLUG_PLATAFORMA: dict[str, str] = {
+    "rappi":         "rappi",
+    "pedidosya":     "pedidosya",
+    "peya":          "pedidosya",
+    "mercadolibre":  "ml",
+    "mercado libre": "ml",
+    "mercado_libre": "ml",
+    "ml":            "ml",
+}
+
+
+def _slug_plat(plataforma: str) -> str:
+    """Convierte un nombre de plataforma a su slug normalizado."""
+    key = plataforma.strip().lower().replace(" ", "_")
+    return _SLUG_PLATAFORMA.get(key, key)
+
+
+def obtener_dias_no_verificados(
+    plataforma: str,
+    fecha_desde: datetime,
+    fecha_hasta: datetime,
+) -> list[str]:
     """
     Devuelve las fechas (YYYY-MM-DD) en el rango [fecha_desde, fecha_hasta]
-    que aún no tienen verificación de reclamos Rappi en el histórico.
+    que requieren ser (re-)consultadas para la plataforma indicada.
 
-    Una fecha "verificada" significa que el proceso ya consultó la API de Rappi
-    para ese día (independientemente de si hubo o no reclamos).
+    Una fecha entra al resultado si cumple cualquiera de:
+      1. NO está marcada como verificada (nunca se consultó la fuente).
+      2. SÍ está marcada como verificada PERO no tiene ningún reclamo
+         registrado para esa plataforma/fecha en el histórico — esto cubre
+         el caso de plataformas que tardan 24-72 h en exponer reclamos
+         recientes: un día que se consultó "vacío" se vuelve a revisar por
+         si aparecieron reclamos después.
 
+    Plataformas reconocidas: "rappi", "pedidosya" / "peya", "ml" / "mercado libre".
     Retorna lista vacía si no se puede acceder al histórico.
     """
     ruta = _obtener_ruta_json()
     if ruta is None:
         return []
 
-    data = _leer_json(ruta)
-    verificados = set(data.get("dias_verificados_rappi", []))
+    slug  = _slug_plat(plataforma)
+    clave = f"dias_verificados_{slug}"
+    data  = _leer_json(ruta)
+    verificados = set(data.get(clave, []))
+
+    # Set de fechas (YYYY-MM-DD) que ya tienen al menos un reclamo registrado
+    # para esta plataforma. Se compara por slug para tolerar variaciones de
+    # capitalización / espacios en el campo "plataforma" del JSON.
+    fechas_con_reclamos: set[str] = {
+        r.get("fecha", "")
+        for r in data.get("reclamos", [])
+        if _slug_plat(r.get("plataforma", "")) == slug and r.get("fecha")
+    }
 
     resultado: list[str] = []
     current = fecha_desde.date()
@@ -326,24 +366,28 @@ def obtener_dias_no_verificados_rappi(fecha_desde: datetime, fecha_hasta: dateti
         fecha_str = current.strftime("%Y-%m-%d")
         if fecha_str not in verificados:
             resultado.append(fecha_str)
+        elif fecha_str not in fechas_con_reclamos:
+            # Día marcado verificado pero sin reclamos registrados — se
+            # re-revisa por si aparecieron reclamos después de la primera
+            # consulta.
+            resultado.append(fecha_str)
         current += timedelta(days=1)
 
     log.info(
-        "historico: %d días sin verificar Rappi en rango %s → %s",
-        len(resultado),
-        fecha_desde.date(),
-        fecha_hasta.date(),
+        "historico: %d días a (re-)verificar %s en rango %s → %s",
+        len(resultado), plataforma, fecha_desde.date(), fecha_hasta.date(),
     )
     return resultado
 
 
-def marcar_dias_verificados_rappi(fechas: list[str]) -> None:
+def marcar_dias_verificados(plataforma: str, fechas: list[str]) -> None:
     """
-    Marca las fechas dadas (YYYY-MM-DD) como verificadas para Rappi en el histórico.
-    Se llama tanto cuando se descargaron reclamos como cuando el día no tuvo ninguno
-    (para evitar re-consultar en ejecuciones futuras).
+    Marca las fechas dadas (YYYY-MM-DD) como verificadas para la plataforma
+    indicada en el histórico.
 
-    No hace nada si no se puede acceder al histórico.
+    Se llama tanto cuando se descargaron reclamos como cuando el día no tuvo
+    ninguno, para evitar re-consultar en ejecuciones futuras.
+    No hace nada si no se puede acceder al histórico o si la lista está vacía.
     """
     if not fechas:
         return
@@ -352,25 +396,41 @@ def marcar_dias_verificados_rappi(fechas: list[str]) -> None:
     if ruta is None:
         return
 
+    slug  = _slug_plat(plataforma)
+    clave = f"dias_verificados_{slug}"
+
     try:
         ruta.parent.mkdir(parents=True, exist_ok=True)
         with _FileLock(ruta):
             data = _leer_json(ruta)
-            data.setdefault("dias_verificados_rappi", [])
-            existentes = set(data["dias_verificados_rappi"])
+            data.setdefault(clave, [])
+            existentes = set(data[clave])
             nuevos = 0
             for f in fechas:
                 if f not in existentes:
-                    data["dias_verificados_rappi"].append(f)
+                    data[clave].append(f)
                     existentes.add(f)
                     nuevos += 1
             if nuevos:
-                data["dias_verificados_rappi"].sort()
+                data[clave].sort()
                 _escribir_json(ruta, data)
-                log.info("historico: %d días Rappi marcados como verificados", nuevos)
+                log.info("historico: %d días %s marcados como verificados", nuevos, plataforma)
             else:
-                log.debug("historico: todos los días Rappi indicados ya estaban verificados")
+                log.debug(
+                    "historico: todos los días %s indicados ya estaban verificados", plataforma)
     except TimeoutError as e:
-        log.error("historico: timeout marcando días verificados: %s", e)
+        log.error("historico: timeout marcando días verificados (%s): %s", plataforma, e)
     except Exception as e:
-        log.error("historico: error marcando días Rappi verificados: %s", e)
+        log.error("historico: error marcando días verificados (%s): %s", plataforma, e)
+
+
+# ── Wrappers backward-compat (Rappi) ─────────────────────────────────────────
+
+def obtener_dias_no_verificados_rappi(fecha_desde: datetime, fecha_hasta: datetime) -> list[str]:
+    """Alias de obtener_dias_no_verificados('rappi', ...)."""
+    return obtener_dias_no_verificados("rappi", fecha_desde, fecha_hasta)
+
+
+def marcar_dias_verificados_rappi(fechas: list[str]) -> None:
+    """Alias de marcar_dias_verificados('rappi', ...)."""
+    marcar_dias_verificados("rappi", fechas)

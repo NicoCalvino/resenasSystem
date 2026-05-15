@@ -295,7 +295,7 @@
       "marca": "Green Eat",
       "grupo": "Florida",
       "py_id": 195164,
-      "rappi_id": 237979,
+      "rappi_id": 118345,
       "mp_nombre": "Green Eat Florida",
       "dk": false,
       "codigo": "FLOGEAAR"
@@ -826,7 +826,7 @@
       "grupo": "Vuelta de Obligado",
       "py_id": 320846,
       "rappi_id": 117038,
-      "mp_nombre": "Tea Connection Belgrano",
+      "mp_nombre": "Tea Connection Vuelta de Obligado",
       "dk": false,
       "codigo": "VUETEAAR"
     },
@@ -836,7 +836,7 @@
       "grupo": "Vuelta de Obligado",
       "py_id": null,
       "rappi_id": 226210,
-      "mp_nombre": null,
+      "mp_nombre": "Tea Connection Vuelta de Obligado",
       "dk": false,
       "codigo": "VUETEAAR"
     },
@@ -878,7 +878,7 @@
       "rappi_id": null,
       "mp_nombre": null,
       "dk": true,
-      "codigo": null
+      "codigo": "GOBDARAR"
     },
     {
       "nombre": "Tea Connection Castelar",
@@ -888,10 +888,10 @@
       "rappi_id": null,
       "mp_nombre": null,
       "dk": true,
-      "codigo": null
+      "codigo": "GOBDARAR"
     }
   ],
-  "ultima_actualizacion": "2026-05-12T22:22:28",
+  "ultima_actualizacion": "2026-05-15T18:32:45",
   "keywords": [
     "agria",
     "agrio",

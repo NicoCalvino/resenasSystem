@@ -101,7 +101,7 @@ def _get_marca(tienda_key: str) -> str:
 # Carga de pedidos desde Google Sheets (una sola vez por ejecución)
 # ==============================================================================
 
-def _cargar_pedidos_sheets(mes: int, anio: int) -> list[dict]:
+def _cargar_pedidos_sheets(mes: int, anio: int, dia_hasta: int = 31) -> list[dict]:
     """
     Descarga el CSV de pedidos de Google Sheets y retorna las filas del
     mes/año indicado. Cada fila es un dict con:
@@ -158,6 +158,8 @@ def _cargar_pedidos_sheets(mes: int, anio: int) -> list[dict]:
             dia = int(fecha_str[8:10])
         except (ValueError, IndexError):
             continue
+        if dia > dia_hasta:
+            continue
         codigo  = rn.get("tienda", "").strip().upper()
         marca_c = rn.get("marca",  "").strip().upper()
         clave   = (marca_c, codigo)
@@ -175,7 +177,8 @@ def _cargar_pedidos_sheets(mes: int, anio: int) -> list[dict]:
 # ==============================================================================
 
 def preparar_datos_grupo(marca: str, dk: bool, mes: int, anio: int,
-                         historico_data: dict, pedidos_mes: list[dict]) -> dict:
+                         historico_data: dict, pedidos_mes: list[dict],
+                         dia_hasta: int = 31) -> dict:
     """
     Combina reclamos del historico.json con pedidos del Google Sheets
     para generar los datos del PDF mensual de un grupo (marca × dk).
@@ -203,10 +206,17 @@ def preparar_datos_grupo(marca: str, dk: bool, mes: int, anio: int,
         )
 
     # ── Reclamos del mes desde historico.json ─────────────────────────────────
+    def _dia_reclamo(r: dict) -> int:
+        try:
+            return int(r.get("fecha", "")[8:10])
+        except (ValueError, IndexError):
+            return 0
+
     reclamos_mes = [
         r for r in historico_data.get("reclamos", [])
         if r.get("fecha", "").startswith(prefijo)
         and _tienda_matches(r.get("tienda", ""))
+        and _dia_reclamo(r) <= dia_hasta
     ]
 
     total_reclamos = len(reclamos_mes)
@@ -244,8 +254,7 @@ def preparar_datos_grupo(marca: str, dk: bool, mes: int, anio: int,
     total_ordenes = len(pedidos_grupo)
 
     # ── % reclamos por día ────────────────────────────────────────────────────
-    hoy = datetime.now()
-    ultimo_dia_activo = hoy.day if (anio == hoy.year and mes == hoy.month) else dias_en_mes
+    ultimo_dia_activo = min(dia_hasta, dias_en_mes)
 
     pct_por_dia: dict[int, float] = {}
     for dia in range(1, ultimo_dia_activo + 1):
@@ -719,14 +728,17 @@ def build_report_mensual(data: dict, out_path: str) -> None:
     print(f"OK — {out_path}  ({tpr[0]} páginas)")
 
 
-def generar_pdfs_mensuales(output_dir: str, anio: int = None, mes: int = None) -> list:
+def generar_pdfs_mensuales(output_dir: str, anio: int = None, mes: int = None,
+                           fecha_hasta: datetime = None) -> list:
     """
     Lee el historico.json (reclamos) y el Google Sheets de pedidos,
-    filtra por mes/año, y genera los 6 PDFs mensuales.
+    filtra desde el primer día del mes hasta fecha_hasta, y genera los 6 PDFs mensuales.
 
     Parámetros:
       output_dir  — carpeta donde se guardan los PDFs
       anio, mes   — año y mes a procesar (default: mes en curso)
+      fecha_hasta — fecha límite del acumulado (default: hoy).
+                    El acumulado va siempre desde el día 1 del mes hasta este día.
 
     Retorna lista de rutas de PDFs generados.
     """
@@ -737,6 +749,12 @@ def generar_pdfs_mensuales(output_dir: str, anio: int = None, mes: int = None) -
         anio = hoy.year
     if mes is None:
         mes = hoy.month
+    if fecha_hasta is None:
+        fecha_hasta = hoy
+
+    # Día hasta el cual se incluyen datos (acotado al mes en curso)
+    dia_hasta = fecha_hasta.day if (fecha_hasta.year == anio and fecha_hasta.month == mes) \
+                else calendar.monthrange(anio, mes)[1]
 
     # ── Reclamos desde historico.json ─────────────────────────────────────────
     historico = leer_historico()
@@ -745,7 +763,7 @@ def generar_pdfs_mensuales(output_dir: str, anio: int = None, mes: int = None) -
         return []
 
     # ── Pedidos desde Google Sheets (descarga única para los 6 PDFs) ─────────
-    pedidos_mes = _cargar_pedidos_sheets(mes, anio)
+    pedidos_mes = _cargar_pedidos_sheets(mes, anio, dia_hasta)
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -758,7 +776,7 @@ def generar_pdfs_mensuales(output_dir: str, anio: int = None, mes: int = None) -
         nombre = grupo["nombre"]
 
         try:
-            data = preparar_datos_grupo(marca, dk, mes, anio, historico, pedidos_mes)
+            data = preparar_datos_grupo(marca, dk, mes, anio, historico, pedidos_mes, dia_hasta)
 
             nombre_archivo = nombre.replace(" ", "_") + f"_{anio}-{mes:02d}.pdf"
             ruta_pdf = output_path / nombre_archivo
