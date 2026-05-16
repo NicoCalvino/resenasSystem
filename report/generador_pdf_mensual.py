@@ -778,7 +778,7 @@ def generar_pdfs_mensuales(output_dir: str, anio: int = None, mes: int = None,
         try:
             data = preparar_datos_grupo(marca, dk, mes, anio, historico, pedidos_mes, dia_hasta)
 
-            nombre_archivo = nombre.replace(" ", "_") + f"_{anio}-{mes:02d}.pdf"
+            nombre_archivo = "Acum_" + nombre.replace(" ", "_") + f"_{anio}-{mes:02d}.pdf"
             ruta_pdf = output_path / nombre_archivo
 
             build_report_mensual(data, str(ruta_pdf))

@@ -15,6 +15,8 @@ Uso (como módulo desde gui.py):
                           log_fn=print, grupo_filtro=None)
 """
 
+import os
+import re
 import sys
 import argparse
 from pathlib import Path
@@ -23,6 +25,41 @@ from collections import OrderedDict, defaultdict
 
 # Asegurar que el módulo report/ sea importable
 sys.path.insert(0, str(Path(__file__).parent))
+
+
+def _cargar_env_archivo() -> None:
+    """
+    Carga las variables del archivo .env del proyecto en os.environ.
+
+    Es necesario porque cuando este módulo se invoca desde la GUI (que NO
+    llama a load_dotenv()), las variables como PEDIDOS_SHEETS_URL no están
+    disponibles y los PDFs mensuales salen con 0 pedidos.
+
+    Usa python-dotenv si está instalado; si no, hace un parseo simple.
+    No sobreescribe variables ya definidas en el entorno.
+    """
+    env_path = Path(__file__).parent / ".env"
+    if not env_path.exists():
+        return
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(dotenv_path=env_path, override=False)
+        return
+    except ImportError:
+        pass
+    # Fallback manual
+    try:
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            k = k.strip()
+            v = v.strip().strip('"').strip("'")
+            if k and k not in os.environ:
+                os.environ[k] = v
+    except Exception:
+        pass
 
 
 # ── Lectura de hojas ──────────────────────────────────────────────────────────
@@ -330,12 +367,19 @@ def regenerar_desde_excel(
     else:
         log("Hoja 'Totales' no encontrada — los indicadores estarán en 0", "warn")
 
-    # ── Inferir fecha del nombre del archivo (resenas_YYYY-MM-DD.xlsx) ────────
-    stem = ruta_excel.stem  # e.g. "resenas_2026-04-13"
-    fecha_str_archivo = stem.replace("resenas_", "").strip()
-    try:
-        fecha_pdf = datetime.strptime(fecha_str_archivo, "%Y-%m-%d")
-    except ValueError:
+    # ── Inferir fecha del nombre del archivo ─────────────────────────────────
+    # Acepta cualquier nombre que contenga YYYY-MM-DD, por ejemplo:
+    #   resenas_2026-04-13.xlsx
+    #   informe_2026-05-15_143330.xlsx
+    stem = ruta_excel.stem
+    m = re.search(r"(\d{4})-(\d{2})-(\d{2})", stem)
+    fecha_pdf = None
+    if m:
+        try:
+            fecha_pdf = datetime.strptime(m.group(0), "%Y-%m-%d")
+        except ValueError:
+            fecha_pdf = None
+    if fecha_pdf is None:
         fecha_pdf = datetime.now()
         log(f"No se pudo inferir la fecha del nombre '{stem}'; usando hoy.", "warn")
 
@@ -381,7 +425,7 @@ def regenerar_desde_excel(
             "reclamos":          _adaptar_reclamos_para_pdf(reclamos_g),
         }
 
-        nombre_pdf = f"{grupo}_{fecha_str_archivo}.pdf"
+        nombre_pdf = f"{grupo}_{fecha_pdf.strftime('%Y-%m-%d')}.pdf"
         nombre_pdf = "".join(
             c if c.isalnum() or c in "._- " else "_" for c in nombre_pdf)
         ruta_pdf = output_path / nombre_pdf
@@ -404,20 +448,30 @@ def regenerar_pdfs_mensuales(
     anio: int = None,
     mes: int = None,
     log_fn=None,
+    fecha_hasta=None,
 ) -> tuple[int, int]:
     """
     Genera los 6 PDFs mensuales de reclamos por grupo (marca × DK)
     a partir del historico.json compartido en Google Drive.
 
     Args:
-        output_dir:  Carpeta donde se guardarán los PDFs.
-        anio:        Año del mes a reportar (default: mes actual).
-        mes:         Mes del mes a reportar (default: mes actual).
-        log_fn:      Función de logging; recibe (mensaje, tag).
+        output_dir:   Carpeta donde se guardarán los PDFs.
+        anio:         Año del mes a reportar. Si es None se infiere de
+                      fecha_hasta o, en su defecto, del mes actual.
+        mes:          Mes del mes a reportar. Mismo criterio que anio.
+        log_fn:       Función de logging; recibe (mensaje, tag).
+        fecha_hasta:  Último día a incluir en el acumulado.
+                      Puede ser datetime, date o string "YYYY-MM-DD".
+                      Default: hoy.
 
     Returns:
         (pdfs_generados, total_grupos)
     """
+    # Cargar .env: imprescindible cuando se llama desde la GUI, que no
+    # invoca load_dotenv() — sin esto, PEDIDOS_SHEETS_URL queda vacía y
+    # los PDFs mensuales se generan con 0 pedidos.
+    _cargar_env_archivo()
+
     from report.generador_pdf_mensual import generar_pdfs_mensuales
 
     def log(msg, tag="info"):
@@ -427,17 +481,42 @@ def regenerar_pdfs_mensuales(
             prefijos = {"ok": "✓", "error": "✗", "warn": "!", "head": "─"}
             print(f"{prefijos.get(tag, ' ')} {msg}")
 
-    hoy = datetime.now()
-    anio = anio or hoy.year
-    mes  = mes  or hoy.month
+    # ── Normalizar fecha_hasta ───────────────────────────────────────────────
+    # Acepta datetime, date o str "YYYY-MM-DD" (formato que usa la GUI).
+    if isinstance(fecha_hasta, str):
+        try:
+            fecha_hasta = datetime.strptime(fecha_hasta.strip(), "%Y-%m-%d")
+        except ValueError:
+            log(f"Fecha hasta inválida: {fecha_hasta!r} — se usará hoy.", "warn")
+            fecha_hasta = None
+    elif fecha_hasta is not None and not isinstance(fecha_hasta, datetime):
+        # date u objeto similar
+        try:
+            fecha_hasta = datetime(fecha_hasta.year, fecha_hasta.month, fecha_hasta.day)
+        except Exception:
+            log(f"Fecha hasta no reconocida: {fecha_hasta!r} — se usará hoy.", "warn")
+            fecha_hasta = None
 
-    log(f"Generando PDFs mensuales — {mes:02d}/{anio}", "head")
+    hoy = datetime.now()
+    if fecha_hasta is None:
+        fecha_hasta = hoy
+
+    # Si no se pasaron anio/mes, derivarlos de fecha_hasta para que la regeneración
+    # use el mes de "hasta" (la GUI suele pedir un período del mes en curso).
+    anio = anio or fecha_hasta.year
+    mes  = mes  or fecha_hasta.month
+
+    if not os.environ.get("PEDIDOS_SHEETS_URL", "").strip():
+        log("PEDIDOS_SHEETS_URL no está definida — los PDFs saldrán con 0 pedidos.", "warn")
+
+    log(f"Generando PDFs mensuales — {mes:02d}/{anio} (hasta {fecha_hasta.strftime('%Y-%m-%d')})", "head")
 
     try:
         pdfs = generar_pdfs_mensuales(
             output_dir=output_dir,
             anio=anio,
             mes=mes,
+            fecha_hasta=fecha_hasta,
         )
         generados = len(pdfs)
         for p in pdfs:

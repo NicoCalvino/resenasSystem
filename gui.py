@@ -1382,15 +1382,19 @@ class ResenaApp(tk.Tk):
                                    "Esperá a que termine el proceso actual.", parent=self)
             return
 
+        out = self.output_dir.get() or "./informes"
+
+        # Por defecto el diálogo abre en la carpeta destino de los PDFs.
+        initialdir = out if os.path.isdir(out) else None
+
         ruta = filedialog.askopenfilename(
             title="Seleccioná el Excel de reseñas",
             filetypes=[("Excel", "*.xlsx"), ("Todos", "*")],
+            initialdir=initialdir,
             parent=self,
         )
         if not ruta:
             return
-
-        out = self.output_dir.get() or "./informes"
 
         # Limpiar log y arrancar en hilo para no bloquear la UI
         self.running = True
@@ -1435,6 +1439,9 @@ class ResenaApp(tk.Tk):
             return
 
         out = self.output_dir.get() or "./informes"
+        # Fecha "hasta" elegida en la GUI — limita el acumulado mensual a ese día
+        # para que el gráfico no muestre caídas a 0 en días sin datos cargados.
+        hasta_str = (self.fecha_hasta.get() or "").strip()
 
         self.running = True
         self.btn_mensuales.config(state="disabled", text="Procesando...")
@@ -1454,6 +1461,7 @@ class ResenaApp(tk.Tk):
                 ok, total = regenerar_pdfs_mensuales(
                     output_dir=out,
                     log_fn=_log_gui,
+                    fecha_hasta=hasta_str or None,
                 )
                 self._set_status(
                     f"Completado: {ok}/{total} PDFs mensuales generados." if total else "Sin datos.",
