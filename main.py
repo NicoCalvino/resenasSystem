@@ -419,7 +419,8 @@ async def main():
     if args.skip_excel:
         logger.info("── Generación de Excel omitida (--skip-excel)")
     else:
-        ruta_excel = output_dir / f"informe_{fecha_str}.xlsx"
+        timestamp = datetime.now().strftime("%H%M%S")
+        ruta_excel = output_dir / f"informe_{fecha_str}_{timestamp}.xlsx"
         try:
             generar_excel(
                 resumenes=resumenes,
